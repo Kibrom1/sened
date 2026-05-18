@@ -11,9 +11,12 @@ import MagicUploadPage from '@/pages/MagicUpload'
 import LoadingSpinner from '@/components/LoadingSpinner'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth0()
+  const { isAuthenticated, isLoading, error } = useAuth0()
+  
   if (isLoading) return <LoadingSpinner fullScreen />
+  if (error) return <div className="p-8 text-red-600 bg-red-50 font-mono text-sm break-all">Auth Error: {error.message}</div>
   if (!isAuthenticated) return <Navigate to="/login" replace />
+  
   return <>{children}</>
 }
 

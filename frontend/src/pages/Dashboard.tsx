@@ -191,7 +191,7 @@ export default function DashboardPage() {
                   <div className="ml-4 flex items-center gap-3 shrink-0">
                     {dStatus === 'unconfirmed' && (
                       <Link
-                        to={`/vendors/${doc.vendor}/${doc.id}/review`}
+                        to={`/vendors/${doc.vendor}/upload`}
                         className="text-xs text-brand-600 hover:underline font-medium"
                       >
                         Review →

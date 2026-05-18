@@ -1,6 +1,6 @@
 import jwt
+import time
 import requests
-from functools import lru_cache
 from django.conf import settings
 from django.http import JsonResponse
 from apps.organizations.models import User
@@ -22,9 +22,12 @@ def is_public_path(path: str) -> bool:
     return any(path.startswith(p) for p in PUBLIC_PATHS)
 
 
-@lru_cache(maxsize=1)
-def get_jwks():
-    """Fetch Auth0 JWKS — cached at process level, refreshed on rotation."""
+# JWKS cache: refreshes after 1 hour or when a key ID is missing (key rotation)
+_jwks_cache: dict = {'data': None, 'fetched_at': 0.0}
+_JWKS_TTL = 3600  # seconds
+
+
+def _fetch_jwks_from_auth0() -> dict | None:
     if not settings.AUTH0_DOMAIN:
         return None
     url = f'https://{settings.AUTH0_DOMAIN}/.well-known/jwks.json'
@@ -33,17 +36,47 @@ def get_jwks():
     return resp.json()
 
 
+def get_jwks(force_refresh: bool = False) -> dict | None:
+    """
+    Fetch Auth0 JWKS — cached for 1 hour.
+    Pass force_refresh=True on a key-not-found error to handle key rotation
+    without requiring a process restart.
+    """
+    now = time.time()
+    if (
+        force_refresh
+        or _jwks_cache['data'] is None
+        or (now - _jwks_cache['fetched_at']) > _JWKS_TTL
+    ):
+        _jwks_cache['data'] = _fetch_jwks_from_auth0()
+        _jwks_cache['fetched_at'] = now
+    return _jwks_cache['data']
+
+
 def decode_jwt(token: str) -> dict:
     """Validate and decode an Auth0 JWT. Returns the payload or raises."""
+    # A JWT has exactly 3 segments (2 dots). An opaque token does not.
+    # We bypass validation in dev-only mode when AUTH0_DOMAIN is not configured.
+    if len(token.split('.')) != 3:
+        if settings.AUTH0_DOMAIN:
+            raise jwt.InvalidTokenError('Opaque token received; ensure VITE_AUTH0_AUDIENCE is set.')
+        return {'sub': 'local-dev-bypass'}
+
     jwks = get_jwks()
     if jwks is None:
         # Dev mode with no Auth0 configured — decode without verification
-        return jwt.decode(token, options={"verify_signature": False})
+        return jwt.decode(token, options={'verify_signature': False})
 
     header = jwt.get_unverified_header(token)
-    key = next((k for k in jwks['keys'] if k['kid'] == header['kid']), None)
+    kid = header.get('kid')
+    key = next((k for k in jwks['keys'] if k['kid'] == kid), None)
+
     if key is None:
-        raise jwt.InvalidTokenError('Public key not found')
+        # Key not found — could be a rotation; try a fresh JWKS fetch once
+        jwks = get_jwks(force_refresh=True)
+        key = next((k for k in (jwks or {}).get('keys', []) if k['kid'] == kid), None)
+        if key is None:
+            raise jwt.InvalidTokenError('Public key not found — token may be from a different tenant')
 
     public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
     return jwt.decode(
@@ -83,7 +116,10 @@ class TenantAuthMiddleware:
         try:
             user = User.objects.select_related('organization').get(auth0_sub=auth0_sub)
         except User.DoesNotExist:
-            return JsonResponse({'error': 'User not found. Please complete registration.'}, status=403)
+            return JsonResponse(
+                {'error': 'User not registered', 'detail': 'Complete registration at /api/register/'},
+                status=401,
+            )
 
         # Attach to request — all views use these, never trust client-supplied org IDs
         request.auth_user = user
