@@ -23,4 +23,3 @@ class RegisterSerializer(serializers.Serializer):
     org_name = serializers.CharField(max_length=255)
     name = serializers.CharField(max_length=255)
     email = serializers.EmailField()
-    auth0_sub = serializers.CharField()

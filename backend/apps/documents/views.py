@@ -21,7 +21,7 @@ class COIDocumentListView(APIView):
     parser_classes = [MultiPartParser]
 
     def get(self, request):
-        qs = COIDocument.objects.for_org(request.org_id).select_related('vendor')
+        qs = COIDocument.objects.for_org(request.org_id).select_related('vendor').prefetch_related('coverages')
         vendor_id = request.query_params.get('vendor')
         if vendor_id:
             qs = qs.filter(vendor_id=vendor_id)
@@ -115,6 +115,8 @@ class COIDocumentConfirmView(APIView):
         coverages_data = request.data.get('coverages', [])
         now = timezone.now()
 
+        # Validate all coverage updates before committing any — fail fast on bad input
+        validated = []
         for cov_data in coverages_data:
             cov_id = cov_data.get('id')
             if not cov_id:
@@ -122,11 +124,17 @@ class COIDocumentConfirmView(APIView):
             try:
                 cov = ExtractedCoverage.objects.get(id=cov_id, document=doc)
             except ExtractedCoverage.DoesNotExist:
-                continue
-
+                return Response(
+                    {'error': f'Coverage {cov_id} not found on this document'},
+                    status=400,
+                )
             serializer = ExtractedCoverageSerializer(cov, data=cov_data, partial=True)
-            if serializer.is_valid():
-                serializer.save(
+            if not serializer.is_valid():
+                return Response({'error': 'Invalid coverage data', 'detail': serializer.errors}, status=400)
+            validated.append(serializer)
+
+        for serializer in validated:
+            serializer.save(
                     confirmed=True,
                     confirmed_at=now,
                     confirmed_by=request.auth_user,
