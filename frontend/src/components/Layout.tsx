@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Users,
   ClipboardList,
+  CreditCard,
   LogOut,
   Shield,
   Menu,
@@ -14,9 +15,10 @@ import { useAuthToken } from '@/hooks/useAuth'
 import { useMe } from '@/hooks/useMe'
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard',   Icon: LayoutDashboard },
-  { to: '/vendors',   label: 'Vendors',     Icon: Users },
+  { to: '/dashboard', label: 'Dashboard',    Icon: LayoutDashboard },
+  { to: '/vendors',   label: 'Vendors',      Icon: Users },
   { to: '/profiles',  label: 'Requirements', Icon: ClipboardList },
+  { to: '/billing',   label: 'Billing',      Icon: CreditCard },
 ]
 
 /** Derive a human-readable page title from the current pathname. */
@@ -26,6 +28,7 @@ function usePageTitle(): string {
   if (pathname.startsWith('/vendors') && pathname.split('/').length > 2) return 'Vendor detail'
   if (pathname.startsWith('/vendors')) return 'Vendors'
   if (pathname.startsWith('/profiles')) return 'Requirements'
+  if (pathname.startsWith('/billing')) return 'Billing'
   return 'sened'
 }
 
