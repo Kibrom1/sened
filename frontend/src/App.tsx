@@ -51,7 +51,7 @@ export default function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/upload/:token" element={<MagicUploadPage />} />
+      <Route path="/magic-upload/:token" element={<MagicUploadPage />} />
 
       {/* Protected routes */}
       <Route
