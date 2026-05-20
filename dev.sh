@@ -125,6 +125,16 @@ cd "$BACKEND"
 python manage.py migrate --settings="$SETTINGS" --verbosity=0
 success "Migrations applied"
 
+# ── backend: seed test users ──────────────────────────────────────────────────
+step "Backend — seeding test users"
+
+python manage.py create_test_users --settings="$SETTINGS"
+
+# ── backend: seed demo data ───────────────────────────────────────────────────
+step "Backend — seeding demo data"
+
+python manage.py create_seed_data --settings="$SETTINGS"
+
 # ── frontend: dependencies ────────────────────────────────────────────────────
 step "Frontend — installing dependencies"
 

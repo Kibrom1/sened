@@ -1,5 +1,5 @@
-import { useAuth0 } from '@auth0/auth0-react'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { useAppAuth } from '@/auth'
 import Layout from '@/components/Layout'
 import LoginPage from '@/pages/Login'
 import DashboardPage from '@/pages/Dashboard'
@@ -9,14 +9,40 @@ import UploadPage from '@/pages/Upload'
 import ProfilesPage from '@/pages/RequirementProfiles'
 import MagicUploadPage from '@/pages/MagicUpload'
 import LoadingSpinner from '@/components/LoadingSpinner'
+import { Shield } from 'lucide-react'
+
+function AuthErrorScreen({ message }: { message: string }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="max-w-md w-full bg-white rounded-xl border border-gray-200 shadow-card p-8 text-center">
+        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+          <Shield className="w-6 h-6 text-red-500" />
+        </div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">Authentication error</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          There was a problem signing you in. Please try again — if the issue persists, contact support.
+        </p>
+        <p className="text-xs text-gray-400 font-mono bg-gray-50 rounded-lg px-3 py-2 mb-6 break-all">
+          {message}
+        </p>
+        <button
+          onClick={() => window.location.href = '/login'}
+          className="btn-primary mx-auto"
+        >
+          Back to sign in
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, error } = useAuth0()
-  
+  const { isAuthenticated, isLoading, error } = useAppAuth()
+
   if (isLoading) return <LoadingSpinner fullScreen />
-  if (error) return <div className="p-8 text-red-600 bg-red-50 font-mono text-sm break-all">Auth Error: {error.message}</div>
+  if (error) return <AuthErrorScreen message={error.message} />
   if (!isAuthenticated) return <Navigate to="/login" replace />
-  
+
   return <>{children}</>
 }
 

@@ -25,5 +25,5 @@ CORS_ALLOW_ALL_ORIGINS = True
 SENTRY_DSN = ''
 
 # Skip Auth0 JWKS fetch (no real Auth0 tenant needed for local UI preview)
-AUTH0_DOMAIN = 'dev-nf1tnrh8lgzr6e20.us.auth0.com'
-AUTH0_AUDIENCE = 'https://api.sened.com'
+AUTH0_DOMAIN = ''
+AUTH0_AUDIENCE = ''

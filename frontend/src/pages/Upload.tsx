@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, FileText, CheckCircle, RotateCcw } from 'lucide-react'
+import { toast } from 'sonner'
 import { documentsApi } from '@/api/documents'
 import type { COIDocument, ExtractedCoverage } from '@/api/types'
 import LoadingSpinner from '@/components/LoadingSpinner'
@@ -14,14 +16,13 @@ function useDocumentStatus(docId: string | null) {
     enabled: !!docId,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      // Stop polling once terminal status reached
       if (!status || ['extracted', 'confirmed', 'failed'].includes(status)) return false
-      return 2000 // poll every 2s while processing
+      return 2000
     },
   })
 }
 
-// ── Extraction review sub-component ───────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────────
 
 const COVERAGE_LABELS: Record<string, string> = {
   general_liability: 'General Liability',
@@ -45,106 +46,138 @@ const LIMIT_LABELS: Record<string, string> = {
   el_disease_each_employee: 'EL Disease – Each Employee',
 }
 
+const LOW_CONFIDENCE = 0.6
+const HIGH_CONFIDENCE = 0.85
+
+// ── Confidence dot ─────────────────────────────────────────────────────────────
+
 function ConfidenceDot({ value }: { value: number | undefined }) {
   if (value === undefined) return null
-  const color = value >= 0.85 ? 'bg-green-400' : value >= 0.6 ? 'bg-yellow-400' : 'bg-red-400'
+  const color =
+    value >= HIGH_CONFIDENCE
+      ? 'bg-green-400'
+      : value >= LOW_CONFIDENCE
+      ? 'bg-yellow-400'
+      : 'bg-red-400'
+  const label =
+    value >= HIGH_CONFIDENCE ? 'High confidence' : value >= LOW_CONFIDENCE ? 'Medium confidence' : 'Low confidence — verify this field'
   return (
     <span
-      title={`Confidence: ${Math.round((value ?? 0) * 100)}%`}
-      className={`inline-block w-2 h-2 rounded-full ml-1.5 ${color}`}
+      title={`${label} (${Math.round(value * 100)}%)`}
+      className={`inline-block w-2 h-2 rounded-full ml-1.5 shrink-0 ${color}`}
     />
   )
 }
+
+// ── Coverage card ──────────────────────────────────────────────────────────────
 
 function CoverageCard({
   coverage,
   edits,
   onChange,
+  touched,
+  onTouch,
 }: {
   coverage: ExtractedCoverage
   edits: Partial<ExtractedCoverage>
   onChange: (field: string, value: unknown) => void
+  touched: Set<string>
+  onTouch: (field: string) => void
 }) {
   const merged = { ...coverage, ...edits }
   const conf = coverage.confidence ?? {}
 
+  const fieldCls = (fieldKey: string, confValue: number | undefined) => {
+    const isLow = confValue !== undefined && confValue < LOW_CONFIDENCE
+    const isTouched = touched.has(`${coverage.id}:${fieldKey}`)
+    if (isLow && !isTouched)
+      return 'border-red-300 ring-1 ring-red-200 focus:ring-red-400'
+    return 'border-gray-200 focus:ring-brand-500'
+  }
+
+  const markTouched = (fieldKey: string) => onTouch(`${coverage.id}:${fieldKey}`)
+
+  const isExpiredCov =
+    merged.expiration_date ? new Date(merged.expiration_date) < new Date() : false
+
   return (
-    <div className="border border-gray-200 rounded-lg p-5 space-y-4">
+    <div className="border border-gray-200 rounded-xl p-5 space-y-4 bg-white">
+      {/* Card header */}
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-900">
           {COVERAGE_LABELS[merged.coverage_type] ?? merged.coverage_type}
         </h3>
         {merged.expiration_date && (
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-            new Date(merged.expiration_date) < new Date()
-              ? 'bg-red-100 text-red-700'
-              : 'bg-green-100 text-green-700'
-          }`}>
-            {new Date(merged.expiration_date) < new Date() ? 'Expired' : 'Active'}
+          <span
+            className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+              isExpiredCov ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+            }`}
+          >
+            {isExpiredCov ? 'Expired' : 'Active'}
           </span>
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 text-sm">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
         {/* Carrier */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="flex items-center text-xs text-gray-500 mb-1">
             Carrier <ConfidenceDot value={conf.carrier_name} />
           </label>
           <input
-            className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 transition-colors ${fieldCls('carrier_name', conf.carrier_name)}`}
             value={merged.carrier_name ?? ''}
-            onChange={(e) => onChange('carrier_name', e.target.value || null)}
+            onChange={(e) => { onChange('carrier_name', e.target.value || null); markTouched('carrier_name') }}
           />
         </div>
 
         {/* Policy number */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="flex items-center text-xs text-gray-500 mb-1">
             Policy # <ConfidenceDot value={conf.policy_number} />
           </label>
           <input
-            className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 transition-colors ${fieldCls('policy_number', conf.policy_number)}`}
             value={merged.policy_number ?? ''}
-            onChange={(e) => onChange('policy_number', e.target.value || null)}
+            onChange={(e) => { onChange('policy_number', e.target.value || null); markTouched('policy_number') }}
           />
         </div>
 
         {/* Effective date */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="flex items-center text-xs text-gray-500 mb-1">
             Effective <ConfidenceDot value={conf.effective_date} />
           </label>
           <input
             type="date"
-            className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 transition-colors ${fieldCls('effective_date', conf.effective_date)}`}
             value={merged.effective_date ?? ''}
-            onChange={(e) => onChange('effective_date', e.target.value || null)}
+            onChange={(e) => { onChange('effective_date', e.target.value || null); markTouched('effective_date') }}
           />
         </div>
 
         {/* Expiration date */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="flex items-center text-xs text-gray-500 mb-1">
             Expiration <ConfidenceDot value={conf.expiration_date} />
           </label>
           <input
             type="date"
-            className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 transition-colors ${fieldCls('expiration_date', conf.expiration_date)}`}
             value={merged.expiration_date ?? ''}
-            onChange={(e) => onChange('expiration_date', e.target.value || null)}
+            onChange={(e) => { onChange('expiration_date', e.target.value || null); markTouched('expiration_date') }}
           />
         </div>
 
         {/* Additional insured */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="flex items-center text-xs text-gray-500 mb-1">
             Additional Insured <ConfidenceDot value={conf.additional_insured} />
           </label>
           <select
-            className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 bg-white transition-colors ${fieldCls('additional_insured', conf.additional_insured)}`}
             value={merged.additional_insured ?? 'unclear'}
-            onChange={(e) => onChange('additional_insured', e.target.value)}
+            onChange={(e) => { onChange('additional_insured', e.target.value); markTouched('additional_insured') }}
           >
             <option value="yes">Yes</option>
             <option value="no">No</option>
@@ -154,13 +187,13 @@ function CoverageCard({
 
         {/* Waiver of subrogation */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="flex items-center text-xs text-gray-500 mb-1">
             Waiver of Subrogation <ConfidenceDot value={conf.waiver_of_subrogation} />
           </label>
           <select
-            className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 bg-white transition-colors ${fieldCls('waiver_of_subrogation', conf.waiver_of_subrogation)}`}
             value={merged.waiver_of_subrogation ?? 'unclear'}
-            onChange={(e) => onChange('waiver_of_subrogation', e.target.value)}
+            onChange={(e) => { onChange('waiver_of_subrogation', e.target.value); markTouched('waiver_of_subrogation') }}
           >
             <option value="yes">Yes</option>
             <option value="no">No</option>
@@ -172,7 +205,7 @@ function CoverageCard({
       {/* Limits */}
       {merged.limits && Object.keys(merged.limits).some((k) => merged.limits![k] !== null) && (
         <div>
-          <p className="text-xs text-gray-500 mb-2">
+          <p className="flex items-center text-xs text-gray-500 mb-2">
             Limits <ConfidenceDot value={conf.limits} />
           </p>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700">
@@ -181,9 +214,7 @@ function CoverageCard({
               .map(([key, val]) => (
                 <div key={key} className="flex justify-between">
                   <span className="text-gray-500">{LIMIT_LABELS[key] ?? key}</span>
-                  <span className="font-medium tabular-nums">
-                    ${Number(val).toLocaleString()}
-                  </span>
+                  <span className="font-medium tabular-nums">${Number(val).toLocaleString()}</span>
                 </div>
               ))}
           </div>
@@ -193,31 +224,91 @@ function CoverageCard({
   )
 }
 
-// ── Main Upload page ──────────────────────────────────────────────────────────
+// ── Low confidence count helper ────────────────────────────────────────────────
+
+function countLowConfidenceFields(
+  coverages: ExtractedCoverage[],
+  touched: Set<string>,
+): number {
+  let count = 0
+  for (const cov of coverages) {
+    const conf = cov.confidence ?? {}
+    for (const [field, val] of Object.entries(conf)) {
+      if (typeof val === 'number' && val < LOW_CONFIDENCE && !touched.has(`${cov.id}:${field}`)) {
+        count++
+      }
+    }
+  }
+  return count
+}
+
+// ── Sticky confirm bar ─────────────────────────────────────────────────────────
+
+function StickyConfirmBar({
+  coverageCount,
+  lowConfCount,
+  isPending,
+  onConfirm,
+}: {
+  coverageCount: number
+  lowConfCount: number
+  isPending: boolean
+  onConfirm: () => void
+}) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 lg:left-60 z-20 bg-white border-t border-gray-200 shadow-lg">
+      <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-sm text-gray-600 shrink-0">
+            {coverageCount} coverage{coverageCount !== 1 ? 's' : ''}
+          </span>
+          {lowConfCount > 0 && (
+            <span className="flex items-center gap-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-0.5 shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {lowConfCount} field{lowConfCount !== 1 ? 's' : ''} need verification
+            </span>
+          )}
+        </div>
+        <button
+          onClick={onConfirm}
+          disabled={isPending}
+          className="px-5 py-2 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 shrink-0 transition-colors"
+        >
+          {isPending ? 'Saving…' : 'Confirm & save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Upload page ───────────────────────────────────────────────────────────
 
 export default function UploadPage() {
   const { vendorId } = useParams<{ vendorId: string }>()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [uploadedDocId, setUploadedDocId] = useState<string | null>(null)
+  // Support pre-loading a specific document via ?docId=
+  const preloadDocId = searchParams.get('docId')
+  const [uploadedDocId, setUploadedDocId] = useState<string | null>(preloadDocId)
   const [isDragging, setIsDragging] = useState(false)
-  // Per-coverage edits: { [coverageId]: { field: newValue } }
   const [coverageEdits, setCoverageEdits] = useState<Record<string, Partial<ExtractedCoverage>>>({})
+  // Track which low-confidence fields the user has touched
+  const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set())
 
-  // ── Upload mutation ────────────────────────────────────────────────────────
+  // ── Upload mutation ──────────────────────────────────────────────────────────
   const uploadMutation = useMutation({
     mutationFn: (file: File) => documentsApi.upload(vendorId!, file),
-    onSuccess: (doc) => {
-      setUploadedDocId(doc.id)
-    },
+    onSuccess: (doc) => setUploadedDocId(doc.id),
+    onError: () => toast.error('Upload failed. Please try again.'),
   })
 
-  // ── Status polling ─────────────────────────────────────────────────────────
+  // ── Status polling ───────────────────────────────────────────────────────────
   const { data: doc } = useDocumentStatus(uploadedDocId)
 
-  // ── Confirm mutation ───────────────────────────────────────────────────────
+  // ── Confirm mutation ─────────────────────────────────────────────────────────
   const confirmMutation = useMutation({
     mutationFn: () => {
       const coverages = (doc?.coverages ?? []).map((cov) => ({
@@ -229,23 +320,27 @@ export default function UploadPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Certificate confirmed and saved')
       navigate(`/vendors/${vendorId}`)
     },
+    onError: () => toast.error('Failed to save. Please try again.'),
   })
 
-  // ── Retry mutation ─────────────────────────────────────────────────────────
+  // ── Retry mutation ───────────────────────────────────────────────────────────
   const retryMutation = useMutation({
     mutationFn: () => documentsApi.retry(doc!.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['document', doc!.id] })
+      toast.info('Retrying extraction…')
     },
+    onError: () => toast.error('Retry failed. Please try again.'),
   })
 
-  // ── File handling ──────────────────────────────────────────────────────────
+  // ── File handling ────────────────────────────────────────────────────────────
   const handleFile = useCallback(
     (file: File) => {
       if (!file.name.toLowerCase().endsWith('.pdf')) {
-        alert('Please upload a PDF file.')
+        toast.error('Please upload a PDF file.')
         return
       }
       uploadMutation.mutate(file)
@@ -263,10 +358,14 @@ export default function UploadPage() {
     [handleFile],
   )
 
-  // ── Render: upload state ───────────────────────────────────────────────────
+  const handleTouch = useCallback((key: string) => {
+    setTouchedFields((prev) => new Set(prev).add(key))
+  }, [])
+
+  // ── Render: upload state ─────────────────────────────────────────────────────
   if (!uploadedDocId) {
     return (
-      <div className="p-8 max-w-2xl">
+      <div className="px-6 py-8 max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Upload COI</h1>
         <p className="text-gray-500 text-sm mb-8">
           Upload a Certificate of Insurance PDF. Claude will extract coverage details automatically.
@@ -289,7 +388,9 @@ export default function UploadPage() {
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
           >
-            <div className="text-4xl mb-4">📄</div>
+            <div className="w-14 h-14 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-4">
+              <FileText className="w-7 h-7 text-brand-400" />
+            </div>
             <p className="text-gray-700 font-medium">Drop a COI PDF here</p>
             <p className="text-gray-400 text-sm mt-1">or click to browse</p>
             <input
@@ -304,28 +405,22 @@ export default function UploadPage() {
             />
           </div>
         )}
-
-        {uploadMutation.isError && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            Upload failed. Please try again.
-          </div>
-        )}
       </div>
     )
   }
 
-  // ── Render: processing state ───────────────────────────────────────────────
+  // ── Render: processing state ─────────────────────────────────────────────────
   if (!doc || doc.status === 'uploaded' || doc.status === 'processing') {
     return (
-      <div className="p-8 max-w-2xl">
+      <div className="px-6 py-8 max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Extracting COI data…</h1>
         <p className="text-gray-500 text-sm mb-8">
           Claude is reading the certificate. This usually takes 10–20 seconds.
         </p>
         <div className="flex items-center gap-3 p-6 bg-blue-50 rounded-xl border border-blue-100">
-          <LoadingSpinner />
+          <LoadingSpinner size={5} />
           <div>
-            <p className="font-medium text-blue-900 text-sm">Processing</p>
+            <p className="font-semibold text-blue-900 text-sm">Processing</p>
             <p className="text-blue-600 text-xs mt-0.5">
               {doc?.status === 'processing' ? 'Extracting coverage details…' : 'Preparing document…'}
             </p>
@@ -335,10 +430,10 @@ export default function UploadPage() {
     )
   }
 
-  // ── Render: failed state ───────────────────────────────────────────────────
+  // ── Render: failed state ─────────────────────────────────────────────────────
   if (doc.status === 'failed') {
     return (
-      <div className="p-8 max-w-2xl">
+      <div className="px-6 py-8 max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Extraction failed</h1>
         <p className="text-gray-500 text-sm mb-8">
           Claude couldn't extract data from this document. This can happen with scanned PDFs or
@@ -348,8 +443,9 @@ export default function UploadPage() {
           <button
             onClick={() => retryMutation.mutate()}
             disabled={retryMutation.isPending}
-            className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
           >
+            <RotateCcw className="w-4 h-4" />
             {retryMutation.isPending ? 'Retrying…' : 'Retry extraction'}
           </button>
           <button
@@ -363,35 +459,43 @@ export default function UploadPage() {
     )
   }
 
-  // ── Render: extracted / confirmed — review screen ─────────────────────────
+  // ── Render: extracted / confirmed — review screen ────────────────────────────
   const isConfirmed = doc.status === 'confirmed'
+  const lowConfCount = isConfirmed
+    ? 0
+    : countLowConfidenceFields(doc.coverages, touchedFields)
 
   return (
-    <div className="p-8 max-w-3xl">
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {isConfirmed ? 'COI Confirmed' : 'Review extracted data'}
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">
-            {isConfirmed
-              ? 'This certificate has been confirmed and saved.'
-              : 'Check the extracted fields below. Edit anything that looks wrong before confirming.'}
-          </p>
-        </div>
-        {!isConfirmed && (
-          <button
-            onClick={() => confirmMutation.mutate()}
-            disabled={confirmMutation.isPending}
-            className="px-5 py-2.5 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 whitespace-nowrap"
-          >
-            {confirmMutation.isPending ? 'Saving…' : 'Confirm & save'}
-          </button>
-        )}
+    <div className="px-6 py-8 max-w-3xl mx-auto pb-24">
+      {/* Page header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">
+          {isConfirmed ? 'COI Confirmed' : 'Review extracted data'}
+        </h1>
+        <p className="text-gray-500 text-sm mt-1">
+          {isConfirmed
+            ? 'This certificate has been confirmed and saved.'
+            : 'Check the extracted fields below. Edit anything that looks wrong, then confirm.'}
+        </p>
       </div>
 
+      {/* Low confidence warning banner */}
+      {!isConfirmed && lowConfCount > 0 && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl mb-6">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">
+              {lowConfCount} field{lowConfCount !== 1 ? 's' : ''} need verification
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Fields highlighted in red have low AI confidence. Review them before confirming.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* COI metadata */}
-      <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-6 grid grid-cols-2 gap-3 text-sm">
+      <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
         <div>
           <p className="text-xs text-gray-500">Insured</p>
           <p className="font-medium text-gray-900 mt-0.5">{doc.insured_name ?? '—'}</p>
@@ -416,11 +520,18 @@ export default function UploadPage() {
 
       {/* Confidence legend */}
       {!isConfirmed && (
-        <div className="flex items-center gap-4 mb-4 text-xs text-gray-500">
-          <span>Field confidence:</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /> High (≥85%)</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> Medium</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> Low — verify</span>
+        <div className="flex flex-wrap items-center gap-4 mb-4 text-xs text-gray-500">
+          <span className="font-medium">Field confidence:</span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-green-400 inline-block" /> High (≥85%)
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> Medium
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+            <span className="text-red-600 font-medium">Low — verify &amp; correct</span>
+          </span>
         </div>
       )}
 
@@ -437,6 +548,8 @@ export default function UploadPage() {
                 [cov.id]: { ...prev[cov.id], [field]: value },
               }))
             }
+            touched={touchedFields}
+            onTouch={handleTouch}
           />
         ))}
       </div>
@@ -447,22 +560,22 @@ export default function UploadPage() {
         </div>
       )}
 
-      {confirmMutation.isError && (
-        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-          Failed to save. Please try again.
+      {/* Confirmed success */}
+      {isConfirmed && (
+        <div className="mt-6 flex items-center gap-2 p-4 bg-green-50 border border-green-200 rounded-xl text-green-800 text-sm">
+          <CheckCircle className="w-4 h-4 shrink-0" />
+          Certificate confirmed and saved successfully.
         </div>
       )}
 
+      {/* Sticky confirm bar */}
       {!isConfirmed && (
-        <div className="mt-6 flex justify-end">
-          <button
-            onClick={() => confirmMutation.mutate()}
-            disabled={confirmMutation.isPending}
-            className="px-6 py-2.5 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
-          >
-            {confirmMutation.isPending ? 'Saving…' : 'Confirm & save'}
-          </button>
-        </div>
+        <StickyConfirmBar
+          coverageCount={doc.coverages.length}
+          lowConfCount={lowConfCount}
+          isPending={confirmMutation.isPending}
+          onConfirm={() => confirmMutation.mutate()}
+        />
       )}
     </div>
   )

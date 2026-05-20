@@ -143,6 +143,10 @@ class COIDocumentConfirmView(APIView):
         doc.status = 'confirmed'
         doc.save(update_fields=['status'])
 
+        # Trigger compliance check now that we have a freshly confirmed COI
+        from apps.compliance.tasks import run_compliance_check_for_vendor
+        run_compliance_check_for_vendor.delay(str(doc.vendor_id))
+
         return Response(COIDocumentSerializer(
             COIDocument.objects.prefetch_related('coverages').get(id=doc.id)
         ).data)

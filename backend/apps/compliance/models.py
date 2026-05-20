@@ -4,7 +4,7 @@ from apps.common.models import TenantModel
 
 class ComplianceCheck(TenantModel):
     vendor = models.ForeignKey('vendors.Vendor', on_delete=models.CASCADE)
-    document = models.ForeignKey('documents.COIDocument', on_delete=models.CASCADE)
+    document = models.ForeignKey('documents.COIDocument', null=True, blank=True, on_delete=models.CASCADE)
     status = models.TextField()
     # matches_requirements | gaps_found | expired | needs_review
     reasons = models.JSONField(null=True, blank=True)

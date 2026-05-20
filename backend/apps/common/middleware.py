@@ -19,6 +19,8 @@ def is_public_path(path: str) -> bool:
         return True
     if path.startswith('/api/internal/'):
         return True
+    if path.startswith('/api/dev/'):
+        return True
     return any(path.startswith(p) for p in PUBLIC_PATHS)
 
 
