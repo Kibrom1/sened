@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ClipboardList } from 'lucide-react'
+import { toast } from 'sonner'
 import { profilesApi } from '@/api/vendors'
 import type { RequirementProfileInput, RequirementLineInput } from '@/api/vendors'
 import type { RequirementProfile, RequirementLine } from '@/api/types'
@@ -30,11 +32,11 @@ function fmt(n: number | null): string {
 // ── Line form types ────────────────────────────────────────────────────────────
 
 type LineForm = {
-  _key: string       // local React key — not sent to the API
-  id?: string        // present for existing lines
+  _key: string
+  id?: string
   coverage_type: string
   is_required: boolean
-  min_each_occurrence: string  // string for controlled input, parsed on save
+  min_each_occurrence: string
   min_aggregate: string
   additional_insured_required: boolean
   waiver_required: boolean
@@ -78,18 +80,10 @@ function lineToInput(line: LineForm): RequirementLineInput {
 
 // ── Lines editor ───────────────────────────────────────────────────────────────
 
-function LinesEditor({
-  lines,
-  onChange,
-}: {
-  lines: LineForm[]
-  onChange: (lines: LineForm[]) => void
-}) {
+function LinesEditor({ lines, onChange }: { lines: LineForm[]; onChange: (lines: LineForm[]) => void }) {
   const update = (key: string, field: keyof LineForm, value: unknown) =>
     onChange(lines.map((l) => (l._key === key ? { ...l, [field]: value } : l)))
-
-  const remove = (key: string) =>
-    onChange(lines.filter((l) => l._key !== key))
+  const remove = (key: string) => onChange(lines.filter((l) => l._key !== key))
 
   return (
     <div className="mt-2 space-y-2">
@@ -190,7 +184,42 @@ function LinesEditor({
   )
 }
 
-// ── Profile card (view + inline edit) ─────────────────────────────────────────
+// ── Inline delete confirmation ─────────────────────────────────────────────────
+
+function DeleteButton({ onConfirm }: { onConfirm: () => void }) {
+  const [confirming, setConfirming] = useState(false)
+
+  if (confirming) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-red-600 font-medium">Delete this profile?</span>
+        <button
+          onClick={() => { setConfirming(false); onConfirm() }}
+          className="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded transition-colors"
+        >
+          Yes, delete
+        </button>
+        <button
+          onClick={() => setConfirming(false)}
+          className="text-xs text-gray-500 hover:text-gray-700"
+        >
+          Cancel
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+    >
+      Delete
+    </button>
+  )
+}
+
+// ── Profile card ───────────────────────────────────────────────────────────────
 
 function ProfileCard({
   profile,
@@ -218,10 +247,9 @@ function ProfileCard({
     setEditing(false)
   }
 
-  // ── Edit mode ────────────────────────────────────────────────────────────────
   if (editing) {
     return (
-      <div className="bg-white rounded-lg border border-brand-400 shadow-sm p-5">
+      <div className="bg-white rounded-xl border border-brand-400 shadow-sm p-5">
         <div className="mb-4">
           <label className="block text-xs font-medium text-gray-500 mb-1">Profile name</label>
           <input
@@ -239,7 +267,7 @@ function ProfileCard({
           <button
             onClick={handleSave}
             disabled={!name.trim() || saving}
-            className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+            className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -254,11 +282,15 @@ function ProfileCard({
     )
   }
 
-  // ── View mode ────────────────────────────────────────────────────────────────
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-5">
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
       <div className="flex items-start justify-between mb-4">
-        <h3 className="font-semibold text-gray-900">{profile.name}</h3>
+        <div>
+          <h3 className="section-heading">{profile.name}</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {profile.lines.length} coverage requirement{profile.lines.length !== 1 ? 's' : ''}
+          </p>
+        </div>
         <div className="flex items-center gap-3 ml-4 shrink-0">
           <button
             onClick={() => setEditing(true)}
@@ -266,54 +298,51 @@ function ProfileCard({
           >
             Edit
           </button>
-          <button
-            onClick={() => onDelete(profile.id)}
-            className="text-xs text-gray-400 hover:text-red-500"
-          >
-            Delete
-          </button>
+          <DeleteButton onConfirm={() => onDelete(profile.id)} />
         </div>
       </div>
 
       {profile.lines.length === 0 ? (
         <p className="text-sm text-gray-400 italic">No coverage requirements defined.</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100 text-xs text-gray-400">
-              <th className="text-left pb-2 font-medium">Coverage type</th>
-              <th className="text-right pb-2 pr-6 font-medium">Each occurrence</th>
-              <th className="text-right pb-2 pr-6 font-medium">Aggregate</th>
-              <th className="text-center pb-2 font-medium">Add. insured</th>
-              <th className="text-center pb-2 font-medium">Waiver</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {profile.lines.map((line) => (
-              <tr key={line.id}>
-                <td className="py-2 text-gray-900">
-                  <span
-                    className={`inline-block w-2 h-2 rounded-full mr-2 ${
-                      line.is_required ? 'bg-green-400' : 'bg-gray-300'
-                    }`}
-                  />
-                  {COVERAGE_LABEL[line.coverage_type] ?? line.coverage_type}
-                  {!line.is_required && (
-                    <span className="ml-1 text-gray-400 text-xs">(optional)</span>
-                  )}
-                </td>
-                <td className="py-2 text-right pr-6 text-gray-600">{fmt(line.min_each_occurrence)}</td>
-                <td className="py-2 text-right pr-6 text-gray-600">{fmt(line.min_aggregate)}</td>
-                <td className="py-2 text-center text-gray-600">
-                  {line.additional_insured_required ? '✓' : '—'}
-                </td>
-                <td className="py-2 text-center text-gray-600">
-                  {line.waiver_required ? '✓' : '—'}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-xs text-gray-400">
+                <th className="text-left pb-2 font-medium">Coverage type</th>
+                <th className="text-right pb-2 pr-6 font-medium">Each occurrence</th>
+                <th className="text-right pb-2 pr-6 font-medium">Aggregate</th>
+                <th className="text-center pb-2 font-medium">Add. insured</th>
+                <th className="text-center pb-2 font-medium">Waiver</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {profile.lines.map((line) => (
+                <tr key={line.id}>
+                  <td className="py-2 text-gray-900">
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                        line.is_required ? 'bg-green-400' : 'bg-gray-300'
+                      }`}
+                    />
+                    {COVERAGE_LABEL[line.coverage_type] ?? line.coverage_type}
+                    {!line.is_required && (
+                      <span className="ml-1 text-gray-400 text-xs">(optional)</span>
+                    )}
+                  </td>
+                  <td className="py-2 text-right pr-6 text-gray-600">{fmt(line.min_each_occurrence)}</td>
+                  <td className="py-2 text-right pr-6 text-gray-600">{fmt(line.min_aggregate)}</td>
+                  <td className="py-2 text-center text-gray-600">
+                    {line.additional_insured_required ? '✓' : '—'}
+                  </td>
+                  <td className="py-2 text-center text-gray-600">
+                    {line.waiver_required ? '✓' : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )
@@ -334,7 +363,7 @@ function NewProfileForm({
   const [lines, setLines] = useState<LineForm[]>([newLine()])
 
   return (
-    <div className="bg-white rounded-lg border border-brand-400 shadow-sm p-5">
+    <div className="bg-white rounded-xl border border-brand-400 shadow-sm p-5">
       <h3 className="font-semibold text-gray-900 mb-4">New profile</h3>
       <div className="mb-4">
         <label className="block text-xs font-medium text-gray-500 mb-1">Profile name</label>
@@ -355,14 +384,11 @@ function NewProfileForm({
         <button
           onClick={() => onCreate({ name, lines: lines.map(lineToInput) })}
           disabled={!name.trim() || saving}
-          className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+          className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium"
         >
           {saving ? 'Creating…' : 'Create profile'}
         </button>
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900"
-        >
+        <button onClick={onCancel} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900">
           Cancel
         </button>
       </div>
@@ -383,34 +409,37 @@ export default function ProfilesPage() {
 
   const createMutation = useMutation({
     mutationFn: (payload: RequirementProfileInput) => profilesApi.create(payload),
-    onSuccess: () => {
+    onSuccess: (profile) => {
       qc.invalidateQueries({ queryKey: ['profiles'] })
       setCreating(false)
+      toast.success(`Profile "${profile.name}" created`)
     },
+    onError: () => toast.error('Failed to create profile.'),
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: RequirementProfileInput }) =>
       profilesApi.update(id, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+    onSuccess: (profile) => {
+      qc.invalidateQueries({ queryKey: ['profiles'] })
+      toast.success(`Profile "${profile.name}" saved`)
+    },
+    onError: () => toast.error('Failed to save profile.'),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => profilesApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profiles'] })
+      toast.success('Profile deleted')
+    },
+    onError: () => toast.error('Failed to delete profile.'),
   })
 
-  const handleDelete = (id: string) => {
-    const profile = profiles?.find((p) => p.id === id)
-    if (!profile) return
-    if (!window.confirm(`Delete "${profile.name}"? This cannot be undone.`)) return
-    deleteMutation.mutate(id)
-  }
-
-  if (isLoading) return <LoadingSpinner fullScreen />
+  if (isLoading) return <LoadingSpinner />
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="px-6 py-8 max-w-4xl mx-auto">
       <div className="flex items-start justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Requirement Profiles</h1>
@@ -421,7 +450,7 @@ export default function ProfilesPage() {
         {!creating && (
           <button
             onClick={() => setCreating(true)}
-            className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 shrink-0 ml-4"
+            className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 shrink-0 ml-4 font-medium"
           >
             New profile
           </button>
@@ -438,15 +467,21 @@ export default function ProfilesPage() {
         )}
 
         {!creating && profiles?.length === 0 ? (
-          <div className="bg-white rounded-lg border border-gray-200 p-10 text-center text-gray-400 text-sm">
-            No profiles yet.{' '}
+          /* ── Empty state ── */
+          <div className="bg-white rounded-xl border border-gray-200 py-16 flex flex-col items-center gap-3 text-center px-6">
+            <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
+              <ClipboardList className="w-7 h-7 text-gray-300" />
+            </div>
+            <p className="font-semibold text-gray-700">No requirement profiles yet</p>
+            <p className="text-sm text-gray-400 max-w-xs">
+              Create a profile to define the minimum insurance coverage each vendor must carry.
+            </p>
             <button
               onClick={() => setCreating(true)}
-              className="text-brand-600 hover:underline"
+              className="mt-1 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700"
             >
               Create your first profile
-            </button>{' '}
-            to define insurance requirements for your vendors.
+            </button>
           </div>
         ) : (
           profiles?.map((profile) => (
@@ -454,7 +489,7 @@ export default function ProfilesPage() {
               key={profile.id}
               profile={profile}
               onSave={(id, payload) => updateMutation.mutate({ id, payload })}
-              onDelete={handleDelete}
+              onDelete={(id) => deleteMutation.mutate(id)}
               saving={updateMutation.isPending}
             />
           ))

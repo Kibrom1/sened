@@ -46,6 +46,10 @@ class VendorDetailView(APIView):
         serializer = VendorSerializer(vendor, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+            # Re-run compliance if the requirement profile changed
+            if 'requirement_profile' in request.data:
+                from apps.compliance.tasks import run_compliance_check_for_vendor
+                run_compliance_check_for_vendor.delay(vendor_id)
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
 

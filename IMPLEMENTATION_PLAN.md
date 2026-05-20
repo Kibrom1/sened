@@ -859,3 +859,41 @@ All authenticated endpoints require `Authorization: Bearer {auth0_jwt}`.
 ---
 
 *This plan is the engineering companion to `PRD.md` and `TECH_SPEC.md`. Update it as phases complete and decisions change.*
+
+---
+
+## 11. Build Status
+
+**Last updated: 2026-05-18**
+**Current position: End of Phase 1 / Start of Phase 2. Frontend UX sprint complete. Next task: compliance engine (Phase 2).**
+
+### ✅ Phase 0 — Foundations (COMPLETE)
+See memory file for full detail.
+
+### ✅ Phase 1 — Extraction Core / Validation MVP (COMPLETE)
+All Phase 1 backend and frontend work done. UX polish sprint also complete (see below).
+
+### ✅ Frontend UX Sprint (COMPLETE — 2026-05-18)
+Full UX redesign pass conducted by principal UX designer + staff frontend engineer.
+
+**Changes shipped:**
+- **Dependencies:** `lucide-react` + `sonner` installed; Tailwind brand palette expanded to full 50–950 scale.
+- **Layout/Sidebar:** Dark slate sidebar (`bg-slate-900`), Shield icon wordmark, Lucide nav icons (LayoutDashboard, Users, ClipboardList), active state with left border accent, proper sign-out button with LogOut icon. Responsive collapsible drawer for mobile with hamburger topbar.
+- **LoadingSpinner:** Fixed full-screen takeover bug — spinner is now content-area only; `fullScreen` prop reserved for pre-layout auth screens only.
+- **Dashboard:** Summary cards have urgency-coloured backgrounds (red for expired, yellow for expiring), Lucide icons, and act as clickable filters on the certificate list. Responsive `grid-cols-2 sm:grid-cols-4`.
+- **Vendors:** Status column added showing most recent COI status (`Active`, `Expired`, `Expiring soon`, `Needs review`, `No COI`). Icons on action buttons. Responsive table with `overflow-x-auto`.
+- **COI Review (Upload):** Sticky viewport-bottom confirmation bar showing coverage count + unverified field count. Low-confidence fields highlighted with red ring (not just a dot in the label). Warning banner above cards when low-confidence fields exist. `?docId=` query param support so "Review →" links pre-load the correct document. `window.alert` replaced with `toast.error`.
+- **RequirementProfiles:** `window.confirm` delete replaced with inline two-step confirmation. `overflow-x-auto` on tables. Toast on create/save/delete.
+- **All pages:** Consistent `px-6 py-8 max-w-*xl mx-auto` layout, `rounded-xl` cards, subtitle copy under page headings.
+- **Empty states:** All empty states replaced with icon + heading + descriptive onboarding copy + primary action button (Dashboard, Vendors, VendorDetail, RequirementProfiles).
+- **Toasts:** Success/error toasts on all mutations (vendor create, COI confirm, profile create/save/delete, CSV import).
+
+### ❌ Phase 2 — Compliance Engine (NOT STARTED)
+- `compliance/urls.py` is empty — no views, no endpoints
+- `compliance/engine.py` not written
+- `run_compliance_check` Celery task not wired up
+- `GET /api/dashboard/` not implemented
+
+### ❌ Phase 3 — Renewal Loop (NOT STARTED)
+
+### ❌ Phase 4 — Billing / Stripe (NOT STARTED)

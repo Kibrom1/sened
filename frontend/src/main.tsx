@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import { Auth0Provider } from '@auth0/auth0-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
+import { DevAuthProvider, IS_DEV_MODE } from '@/auth'
+import { Toaster } from 'sonner'
 import App from './App.tsx'
 import './index.css'
 
@@ -15,12 +17,15 @@ const queryClient = new QueryClient({
   },
 })
 
-const AUTH0_DOMAIN = import.meta.env.VITE_AUTH0_DOMAIN || ''
+const AUTH0_DOMAIN    = import.meta.env.VITE_AUTH0_DOMAIN    || ''
 const AUTH0_CLIENT_ID = import.meta.env.VITE_AUTH0_CLIENT_ID || ''
-const AUTH0_AUDIENCE = import.meta.env.VITE_AUTH0_AUDIENCE || ''
+const AUTH0_AUDIENCE  = import.meta.env.VITE_AUTH0_AUDIENCE  || ''
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+function AuthProvider({ children }: { children: React.ReactNode }) {
+  if (IS_DEV_MODE) {
+    return <DevAuthProvider>{children}</DevAuthProvider>
+  }
+  return (
     <Auth0Provider
       domain={AUTH0_DOMAIN}
       clientId={AUTH0_CLIENT_ID}
@@ -29,11 +34,20 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         audience: AUTH0_AUDIENCE,
       }}
     >
+      {children}
+    </Auth0Provider>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <App />
+          <Toaster position="bottom-right" richColors closeButton />
         </BrowserRouter>
       </QueryClientProvider>
-    </Auth0Provider>
+    </AuthProvider>
   </React.StrictMode>,
 )

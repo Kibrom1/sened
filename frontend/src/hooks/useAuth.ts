@@ -1,13 +1,14 @@
-import { useAuth0 } from '@auth0/auth0-react'
 import { useEffect } from 'react'
 import { setAuthToken } from '@/api/client'
+import { useAppAuth } from '@/auth'
 
 /**
- * Keeps the Axios client's Authorization header in sync with the Auth0 token.
- * Call this once at the top of your app (inside Layout or App).
+ * Keeps the Axios client's Authorization header in sync with the current token.
+ * Works in both Auth0 (production) and dev mode (no Auth0 config).
+ * Call this once at the top of your app (inside Layout).
  */
 export function useAuthToken() {
-  const { getAccessTokenSilently, isAuthenticated } = useAuth0()
+  const { getAccessToken, isAuthenticated } = useAppAuth()
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -17,7 +18,7 @@ export function useAuthToken() {
 
     let cancelled = false
 
-    getAccessTokenSilently()
+    getAccessToken()
       .then((token) => {
         if (!cancelled) setAuthToken(token)
       })
@@ -28,5 +29,5 @@ export function useAuthToken() {
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated, getAccessTokenSilently])
+  }, [isAuthenticated, getAccessToken])
 }
