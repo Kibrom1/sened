@@ -1,3 +1,6 @@
 from django.urls import path
+from .views import MagicUploadView
 
-urlpatterns = []
+urlpatterns = [
+    path('magic-upload/<str:token>/', MagicUploadView.as_view()),
+]
