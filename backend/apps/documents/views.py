@@ -67,6 +67,10 @@ class COIDocumentListView(APIView):
         # Kick off async extraction (fire-and-forget)
         _trigger_extraction(str(doc.id))
 
+        from apps.common.activity import log_activity
+        log_activity(request.org_id, actor=request.auth_user.email, action='coi_uploaded',
+                     vendor=vendor, detail={'document_id': str(doc.id)})
+
         return Response(COIDocumentSerializer(doc).data, status=201)
 
 
@@ -146,6 +150,10 @@ class COIDocumentConfirmView(APIView):
         # Trigger compliance check now that we have a freshly confirmed COI
         from apps.compliance.tasks import run_compliance_check_for_vendor
         run_compliance_check_for_vendor.delay(str(doc.vendor_id))
+
+        from apps.common.activity import log_activity
+        log_activity(request.org_id, actor=request.auth_user.email, action='coi_confirmed',
+                     vendor=doc.vendor_id, detail={'document_id': str(doc.id)})
 
         return Response(COIDocumentSerializer(
             COIDocument.objects.prefetch_related('coverages').get(id=doc.id)

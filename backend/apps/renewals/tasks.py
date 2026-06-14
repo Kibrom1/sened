@@ -51,50 +51,49 @@ def scan_renewals_due():
         expiry_cutoff = now.date() + timedelta(days=lead_days)
         cadence_cutoff = now - timedelta(days=cadence_days)
 
-        for vendor in Vendor.objects.filter(organization=org):
-            if not vendor.contact_email:
-                continue  # nothing to send to
+        # One query per org: candidate vendors annotated with their latest
+        # confirmed document, filtered by expiring coverage and no recent
+        # pending renewal (previously 3 queries per vendor — N+1).
+        from django.db.models import Exists, OuterRef, Subquery
 
-            # Latest confirmed COI for this vendor
-            latest_doc = (
-                COIDocument.objects
-                .filter(vendor=vendor, status='confirmed')
-                .order_by('-created_at')
-                .first()
-            )
-            if not latest_doc:
-                continue
+        latest_doc_id = (
+            COIDocument.objects
+            .filter(vendor=OuterRef('pk'), status='confirmed')
+            .order_by('-created_at')
+            .values('id')[:1]
+        )
+        has_pending = RenewalRequest.objects.filter(
+            vendor=OuterRef('pk'),
+            organization=org,
+            status__in=['scheduled', 'sent'],
+            created_at__gte=cadence_cutoff,
+        )
+        has_expiring = ExtractedCoverage.objects.filter(
+            document_id=OuterRef('latest_doc_id'),
+            expiration_date__isnull=False,
+            expiration_date__lte=expiry_cutoff,
+            expiration_date__gte=now.date(),
+        )
 
-            # Any coverage expiring within lead_days (and not already expired)?
-            expiring = ExtractedCoverage.objects.filter(
-                document=latest_doc,
-                expiration_date__isnull=False,
-                expiration_date__lte=expiry_cutoff,
-                expiration_date__gte=now.date(),
-            ).exists()
-            if not expiring:
-                continue
+        candidates = (
+            Vendor.objects
+            .filter(organization=org, status='active')
+            .exclude(contact_email__isnull=True)
+            .exclude(contact_email='')
+            .annotate(latest_doc_id=Subquery(latest_doc_id))
+            .filter(latest_doc_id__isnull=False)
+            .annotate(has_expiring=Exists(has_expiring), has_pending=Exists(has_pending))
+            .filter(has_expiring=True, has_pending=False)
+        )
 
-            # Suppress if a renewal request was already sent/scheduled recently
-            already_pending = RenewalRequest.objects.filter(
-                vendor=vendor,
-                organization=org,
-                status__in=['scheduled', 'sent'],
-                created_at__gte=cadence_cutoff,
-            ).exists()
-            if already_pending:
-                logger.debug(
-                    'renewal scan: vendor %s already has pending renewal — skipping',
-                    vendor.id,
-                )
-                continue
+        for vendor in candidates:
 
             # Create renewal request with a time-limited magic-link token
             token = secrets.token_urlsafe(32)
             renewal = RenewalRequest.objects.create(
                 organization=org,
                 vendor=vendor,
-                document=latest_doc,
+                document_id=vendor.latest_doc_id,
                 status='scheduled',
                 magic_link_token=token,
                 magic_link_expires_at=now + timedelta(days=14),
@@ -148,8 +147,12 @@ def send_renewal_reminder_for_vendor(self, renewal_request_id: str):
         )
         return
 
+    from django.utils.html import escape
+
     magic_url = f'{settings.FRONTEND_URL}/magic-upload/{renewal.magic_link_token}'
-    greeting = f'Hi {vendor.contact_name},' if vendor.contact_name else 'Hello,'
+    greeting = f'Hi {escape(vendor.contact_name)},' if vendor.contact_name else 'Hello,'
+    org_name = escape(org.name)
+    vendor_name = escape(vendor.name)
 
     html_body = f"""
     <html>
@@ -167,8 +170,8 @@ def send_renewal_reminder_for_vendor(self, renewal_request_id: str):
       <p style="margin-bottom:16px;">{greeting}</p>
 
       <p style="margin-bottom:16px;">
-        <strong>{org.name}</strong> requires an updated Certificate of Insurance
-        from <strong>{vendor.name}</strong>. Your current certificate is expiring
+        <strong>{org_name}</strong> requires an updated Certificate of Insurance
+        from <strong>{vendor_name}</strong>. Your current certificate is expiring
         soon, and uploading an updated COI ensures there's no interruption to your
         work relationship.
       </p>
@@ -188,13 +191,13 @@ def send_renewal_reminder_for_vendor(self, renewal_request_id: str):
 
       <p style="color:#6B7280;font-size:13px;margin-bottom:8px;">
         This secure link expires in 14 days. If you have questions about what's
-        required, please contact {org.name} directly.
+        required, please contact {org_name} directly.
       </p>
 
       <hr style="border:none;border-top:1px solid #E5E7EB;margin:24px 0;">
 
       <p style="color:#9CA3AF;font-size:12px;">
-        Sent by sened on behalf of {org.name} &middot;
+        Sent by sened on behalf of {org_name} &middot;
         COI tracking and renewal management
       </p>
     </body>
@@ -207,12 +210,17 @@ def send_renewal_reminder_for_vendor(self, renewal_request_id: str):
         resend.Emails.send({
             'from': settings.EMAIL_FROM,
             'to': [vendor.contact_email],
-            'subject': f'Action required: Upload updated COI for {org.name}',
+            'subject': f'Action required: Upload updated COI for {org_name}',
             'html': html_body,
         })
         renewal.status = 'sent'
         renewal.sent_at = timezone.now()
         renewal.save(update_fields=['status', 'sent_at'])
+
+        from apps.common.activity import log_activity
+        log_activity(org.id, actor='system', action='renewal_reminder_sent',
+                     vendor=vendor, detail={'renewal_id': str(renewal.id),
+                                            'to': vendor.contact_email})
         logger.info(
             'renewal reminder sent → %s (vendor %s, org %s)',
             vendor.contact_email, vendor.id, org.id,

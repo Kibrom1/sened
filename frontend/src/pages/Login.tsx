@@ -43,15 +43,15 @@ function DevLoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1 text-center">sened</h1>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="max-w-md w-full bg-white rounded-xl shadow-sm border border-slate-200 p-8">
+        <h1 className="text-2xl font-bold text-slate-900 mb-1 text-center">sened</h1>
         <div className="mb-6 text-center">
           <span className="inline-block bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
             Dev mode — no Auth0
           </span>
         </div>
-        <p className="text-sm text-gray-500 mb-5 text-center">
+        <p className="text-sm text-slate-500 mb-5 text-center">
           Pick a test user to log in as:
         </p>
 
@@ -81,11 +81,11 @@ function DevLoginPage() {
               key={u.sub}
               onClick={() => handleLogin(u.sub)}
               disabled={loggingIn !== null}
-              className="w-full flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
+              className="w-full flex items-center justify-between border border-slate-200 rounded-lg px-4 py-3 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
             >
               <div>
-                <p className="text-sm font-medium text-gray-900">{u.name}</p>
-                <p className="text-xs text-gray-500">{u.email} · {u.org}</p>
+                <p className="text-sm font-medium text-slate-900">{u.name}</p>
+                <p className="text-xs text-slate-500">{u.email} · {u.org}</p>
               </div>
               {loggingIn === u.sub ? (
                 <LoadingSpinner />
@@ -120,27 +120,27 @@ function ProductionLoginPage() {
   if (isLoading) return <LoadingSpinner fullScreen />
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-card-md border border-gray-200 p-8">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="max-w-md w-full bg-white rounded-lg shadow-card-md border border-slate-200 p-8">
         {/* Brand mark */}
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center shrink-0">
             <Shield className="w-5 h-5 text-white" />
           </div>
-          <span className="text-2xl font-bold text-gray-900 tracking-tight">sened</span>
+          <span className="text-2xl font-bold text-slate-900 tracking-tight">sened</span>
         </div>
 
-        <h1 className="text-xl font-semibold text-gray-900 mb-2">
-          Stop chasing certificates of insurance
+        <h1 className="text-lg font-semibold text-slate-900 mb-1">
+          Sign in to sened
         </h1>
-        <p className="text-gray-500 text-sm mb-6">
-          Automatically collect, extract, and monitor COIs for every subcontractor — so you stay covered without the paperwork.
+        <p className="text-slate-500 text-sm mb-6">
+          Certificate of insurance tracking and renewal management.
         </p>
 
         {/* Feature list */}
         <ul className="space-y-2 mb-8">
           {FEATURES.map((f) => (
-            <li key={f} className="flex items-start gap-2.5 text-sm text-gray-600">
+            <li key={f} className="flex items-start gap-2.5 text-sm text-slate-600">
               <CheckCircle className="w-4 h-4 text-brand-500 mt-0.5 shrink-0" />
               {f}
             </li>
@@ -149,12 +149,12 @@ function ProductionLoginPage() {
 
         <button
           onClick={() => login()}
-          className="w-full bg-brand-600 text-white py-2.5 px-4 rounded-lg font-medium hover:bg-brand-700 transition-colors text-sm"
+          className="w-full bg-brand-600 text-white py-2.5 px-4 rounded-md font-medium hover:bg-brand-700 transition-colors text-sm"
         >
-          Sign in / Sign up
+          Continue
         </button>
-        <p className="text-center text-xs text-gray-400 mt-4">
-          Free to try · No credit card required
+        <p className="text-center text-xs text-slate-400 mt-4">
+          New here? An account is created automatically on first sign-in.
         </p>
       </div>
     </div>

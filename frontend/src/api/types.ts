@@ -112,3 +112,10 @@ export interface ComplianceCheckWithVendor extends ComplianceCheck {
   vendor_id: string
   next_expiration: string | null
 }
+
+/** Response from GET /api/compliance/vendor/<id>/ */
+export interface VendorComplianceStatus {
+  status: 'matches_requirements' | 'gaps_found' | 'expired' | 'needs_review' | 'no_data'
+  reasons: string[]
+  checked_at: string | null
+}

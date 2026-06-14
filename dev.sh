@@ -151,12 +151,12 @@ prefix_frontend() { while IFS= read -r line; do echo -e "${GREEN}[frontend]${RES
 
 # Django
 cd "$BACKEND"
-DJANGO_SETTINGS_MODULE="$SETTINGS" python manage.py runserver 8000 2>&1 | prefix_backend &
+DJANGO_SETTINGS_MODULE="$SETTINGS" python manage.py runserver 8081 2>&1 | prefix_backend &
 PIDS+=($!)
 
 # Vite
 cd "$FRONTEND"
-npm run dev 2>&1 | prefix_frontend &
+PORT=5174 npm run dev 2>&1 | prefix_frontend &
 PIDS+=($!)
 
 # ── wait for both to be ready ─────────────────────────────────────────────────
@@ -167,14 +167,14 @@ BACKEND_OK=false
 FRONTEND_OK=false
 
 for i in {1..15}; do
-  if curl -s http://localhost:8000/api/health/ | grep -q '"status": "ok"' 2>/dev/null; then
+  if curl -s http://localhost:8081/api/health/ | grep -q '"status": "ok"' 2>/dev/null; then
     BACKEND_OK=true; break
   fi
   sleep 1
 done
 
 for i in {1..15}; do
-  if curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ 2>/dev/null | grep -q "200"; then
+  if curl -s -o /dev/null -w "%{http_code}" http://localhost:5174/ 2>/dev/null | grep -q "200"; then
     FRONTEND_OK=true; break
   fi
   sleep 1
@@ -182,8 +182,8 @@ done
 
 echo ""
 echo -e "  ${BOLD}─────────────────────────────────────────${RESET}"
-if $BACKEND_OK;  then success "Backend  → http://localhost:8000"; else warn "Backend  → not responding (check logs above)"; fi
-if $FRONTEND_OK; then success "Frontend → http://localhost:5173"; else warn "Frontend → not responding (check logs above)"; fi
+if $BACKEND_OK;  then success "Backend  → http://localhost:8081"; else warn "Backend  → not responding (check logs above)"; fi
+if $FRONTEND_OK; then success "Frontend → http://localhost:5174"; else warn "Frontend → not responding (check logs above)"; fi
 echo -e "  ${BOLD}─────────────────────────────────────────${RESET}"
 echo ""
 info "Press Ctrl+C to stop all servers"
@@ -192,9 +192,9 @@ echo ""
 # ── open browser ──────────────────────────────────────────────────────────────
 if $FRONTEND_OK; then
   if command -v open >/dev/null 2>&1; then        # macOS
-    open http://localhost:5173
+    open http://localhost:5174
   elif command -v xdg-open >/dev/null 2>&1; then  # Linux
-    xdg-open http://localhost:5173
+    xdg-open http://localhost:5174
   fi
 fi
 

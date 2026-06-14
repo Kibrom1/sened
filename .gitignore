@@ -47,3 +47,12 @@ frontend/.env.local
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Local docs
+docs/
+
+# Local helper script
+dev.sh
+
+# Developer how-to guides
+how_to/

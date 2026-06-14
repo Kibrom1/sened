@@ -1,21 +1,13 @@
 """
-Magic-link upload views — Phase 3
+Renewal views — Phase 3
 
-Public endpoints (no auth required) used by vendor contacts who receive
-renewal reminder emails.  The magic_link_token is the sole authentication
-mechanism; requests with expired or unknown tokens are rejected.
-
-GET  /api/magic-upload/<token>/
-    Verify the token is valid, return vendor + org context for the upload
-    page.  Returns {'already_responded': True} if the vendor already uploaded.
-
-POST /api/magic-upload/<token>/
-    Accept a PDF upload, store it (R2 / /tmp fallback), create a COIDocument,
-    mark the RenewalRequest as 'responded', and queue AI extraction.
+MagicUploadView  — public, token-authenticated upload endpoint (vendor-facing)
+ManualRenewalView — authenticated endpoint for staff to manually trigger a reminder
 """
 
 import logging
 import os
+import secrets
 import uuid
 
 from django.conf import settings
@@ -99,6 +91,13 @@ class MagicUploadView(APIView):
     # ── POST — accept PDF, create document, queue extraction ─────────────────
 
     def post(self, request, token: str):
+        # Rate limit: 5 uploads per hour per client IP (public endpoint)
+        if not _allow_upload(_client_ip(request)):
+            return Response(
+                {'error': 'Too many upload attempts. Please try again in an hour.'},
+                status=429,
+            )
+
         renewal, error = self._resolve_renewal(token)
 
         if error == 'invalid':
@@ -148,6 +147,12 @@ class MagicUploadView(APIView):
         # Queue AI extraction
         extract_coi.delay(str(doc.id))
 
+        from apps.common.activity import log_activity
+        log_activity(
+            org.id, actor='vendor', action='coi_uploaded_via_magic_link',
+            vendor=vendor, detail={'document_id': str(doc.id), 'renewal_id': str(renewal.id)},
+        )
+
         logger.info(
             'magic upload: doc %s created for vendor %s (org %s)',
             doc.id, vendor.id, org.id,
@@ -157,6 +162,34 @@ class MagicUploadView(APIView):
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
+
+def _client_ip(request) -> str:
+    """Client IP, honouring the first X-Forwarded-For hop (Fly.io proxy)."""
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', 'unknown')
+
+
+def _allow_upload(ip: str, limit: int = 5, window_seconds: int = 3600) -> bool:
+    """
+    Sliding-window-ish rate limiter: max `limit` uploads per `window_seconds`
+    per IP. Backed by Django's cache (Redis in production — shared across
+    workers; LocMem in tests).
+    """
+    from django.core.cache import cache
+
+    key = f'magic-upload-rate:{ip}'
+    # add() is atomic: sets to 0 with TTL only if the key doesn't exist
+    cache.add(key, 0, timeout=window_seconds)
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        # Key expired between add() and incr() — extremely rare; start over
+        cache.set(key, 1, timeout=window_seconds)
+        count = 1
+    return count <= limit
+
 
 def _store_file(file_obj, file_key: str) -> None:
     """Upload to R2 if configured, otherwise save to /tmp for local dev."""
@@ -169,3 +202,74 @@ def _store_file(file_obj, file_key: str) -> None:
         with open(local_path, 'wb') as f:
             for chunk in file_obj.chunks():
                 f.write(chunk)
+
+
+class ManualRenewalView(APIView):
+    """
+    POST /api/renewals/send/<vendor_id>/
+    Authenticated staff endpoint — immediately creates a RenewalRequest and
+    fires the reminder email, bypassing the normal cadence-days guard.
+    """
+
+    def post(self, request, vendor_id):
+        from apps.vendors.models import Vendor
+        from apps.documents.models import COIDocument
+        from .tasks import send_renewal_reminder_for_vendor
+
+        # Scope to the caller's org
+        try:
+            vendor = Vendor.objects.for_org(request.org_id).get(id=vendor_id)
+        except Vendor.DoesNotExist:
+            return Response({'error': 'Vendor not found.'}, status=404)
+
+        contact_email = getattr(vendor, 'contact_email', None)
+        if not contact_email:
+            return Response(
+                {'error': 'Vendor has no contact email — add one before sending a reminder.'},
+                status=400,
+            )
+
+        # Find the latest confirmed COI for this vendor / org
+        doc = (
+            COIDocument.objects
+            .filter(
+                vendor=vendor,
+                organization_id=request.org_id,
+                status='confirmed',
+            )
+            .order_by('-created_at')
+            .first()
+        )
+
+        token = secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timezone.timedelta(days=14)
+
+        renewal = RenewalRequest.objects.create(
+            organization_id=request.org_id,
+            vendor=vendor,
+            document=doc,
+            magic_link_token=token,
+            magic_link_expires_at=expires_at,
+            status='scheduled',
+        )
+
+        send_renewal_reminder_for_vendor.delay(str(renewal.id))
+
+        from apps.common.activity import log_activity
+        log_activity(
+            request.org_id, actor=request.auth_user.email, action='renewal_reminder_triggered',
+            vendor=vendor, detail={'renewal_id': str(renewal.id), 'manual': True},
+        )
+
+        logger.info(
+            'manual renewal triggered: renewal %s for vendor %s (org %s) by user %s',
+            renewal.id, vendor.id, request.org_id, request.auth_user.email,
+        )
+
+        return Response(
+            {
+                'renewal_id': str(renewal.id),
+                'message': f'Renewal reminder queued for {vendor.name}.',
+            },
+            status=201,
+        )

@@ -22,7 +22,10 @@ class VendorListView(APIView):
             if profile_id:
                 if not RequirementProfile.objects.for_org(request.org_id).filter(id=profile_id).exists():
                     return Response({'error': 'Invalid requirement profile'}, status=400)
-            serializer.save(organization_id=request.org_id)
+            vendor = serializer.save(organization_id=request.org_id)
+            from apps.common.activity import log_activity
+            log_activity(request.org_id, actor=request.auth_user.email,
+                         action='vendor_created', vendor=vendor)
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -45,6 +48,11 @@ class VendorDetailView(APIView):
             return Response({'error': 'Not found'}, status=404)
         serializer = VendorSerializer(vendor, data=request.data, partial=True)
         if serializer.is_valid():
+            # Validate requirement_profile belongs to this org (same check as POST)
+            profile_id = request.data.get('requirement_profile')
+            if profile_id:
+                if not RequirementProfile.objects.for_org(request.org_id).filter(id=profile_id).exists():
+                    return Response({'error': 'Invalid requirement profile'}, status=400)
             serializer.save()
             # Re-run compliance if the requirement profile changed
             if 'requirement_profile' in request.data:
@@ -60,6 +68,9 @@ class VendorDetailView(APIView):
             return Response({'error': 'Not found'}, status=404)
         vendor.status = 'inactive'
         vendor.save(update_fields=['status'])
+        from apps.common.activity import log_activity
+        log_activity(request.org_id, actor=request.auth_user.email,
+                     action='vendor_deactivated', vendor=vendor)
         return Response(status=204)
 
 
@@ -100,6 +111,12 @@ class VendorImportView(APIView):
                     notes=row.get('notes', '').strip() or None,
                 )
                 created += 1
+
+        if created:
+            from apps.common.activity import log_activity
+            log_activity(request.org_id, actor=request.auth_user.email,
+                         action='vendors_imported',
+                         detail={'created': created, 'skipped': skipped})
 
         return Response({'created': created, 'skipped': skipped, 'errors': errors})
 
@@ -158,6 +175,15 @@ class RequirementProfileDetailView(APIView):
                         profile=profile,
                         **{k: v for k, v in line_data.items() if k in allowed}
                     )
+
+            # Requirements changed — re-run compliance for every vendor using
+            # this profile so the dashboard doesn't go stale until the daily sweep
+            from apps.compliance.tasks import run_compliance_check_for_vendor
+            vendor_ids = Vendor.objects.for_org(request.org_id).filter(
+                requirement_profile=profile, status='active'
+            ).values_list('id', flat=True)
+            for vid in vendor_ids:
+                run_compliance_check_for_vendor.delay(str(vid))
 
         updated = RequirementProfile.objects.prefetch_related('lines').get(id=profile.id)
         return Response(RequirementProfileSerializer(updated).data)

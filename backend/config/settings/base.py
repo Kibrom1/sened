@@ -133,6 +133,21 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
+# Cache — Redis (shared across web workers; used for rate limiting).
+# Falls back to in-process LocMem when REDIS_URL isn't set.
+_REDIS_URL = config('REDIS_URL', default='')
+if _REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}
+    }
+
 # Cloudflare R2 / S3
 R2_ENDPOINT_URL = config('R2_ENDPOINT_URL', default='')
 R2_ACCESS_KEY = config('R2_ACCESS_KEY', default='')
