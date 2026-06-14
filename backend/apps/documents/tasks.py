@@ -95,19 +95,35 @@ def _pdf_to_images(pdf_bytes: bytes) -> list[bytes]:
     return images
 
 
-def _call_anthropic(image_bytes_list: list[bytes]) -> dict:
+def _build_image_blocks(file_key: str, file_bytes: bytes) -> list[dict]:
+    """
+    Produce a list of {media_type, data} image blocks for the vision API.
+
+    PDFs are rendered to one PNG per page; image uploads (PNG/JPG/WEBP/GIF)
+    are passed through directly with their own media type.
+    """
+    ext = file_key.rsplit('.', 1)[-1].lower() if '.' in file_key else 'pdf'
+    if ext == 'pdf':
+        return [{'media_type': 'image/png', 'data': png} for png in _pdf_to_images(file_bytes)]
+
+    from apps.common.uploads import EXTENSION_CONTENT_TYPE
+    media_type = EXTENSION_CONTENT_TYPE.get(ext, 'image/png')
+    return [{'media_type': media_type, 'data': file_bytes}]
+
+
+def _call_anthropic(image_blocks: list[dict]) -> dict:
     """Send COI images to Anthropic and return parsed JSON."""
     import anthropic  # lazy import
 
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    # Build content blocks — one image per PDF page (cap at 4 pages)
+    # Build content blocks — one image per page/file (cap at 4)
     content = []
-    for img_bytes in image_bytes_list[:4]:
-        b64 = base64.standard_b64encode(img_bytes).decode('utf-8')
+    for block in image_blocks[:4]:
+        b64 = base64.standard_b64encode(block['data']).decode('utf-8')
         content.append({
             'type': 'image',
-            'source': {'type': 'base64', 'media_type': 'image/png', 'data': b64},
+            'source': {'type': 'base64', 'media_type': block['media_type'], 'data': b64},
         })
     content.append({'type': 'text', 'text': EXTRACTION_PROMPT})
 
@@ -155,16 +171,16 @@ def extract_coi(self, document_id: str):
     doc.save(update_fields=['status'])
 
     try:
-        # ── 1. Fetch PDF bytes ────────────────────────────────────────────────
-        pdf_bytes = _get_pdf_bytes(doc.file_key)
+        # ── 1. Fetch file bytes (PDF or image) ────────────────────────────────
+        file_bytes = _get_file_bytes(doc.file_key)
 
-        # ── 2. Convert to images ──────────────────────────────────────────────
-        images = _pdf_to_images(pdf_bytes)
-        if not images:
-            raise ValueError('PDF produced no renderable pages')
+        # ── 2. Build vision image blocks (PDF→PNG pages, or pass image through)
+        image_blocks = _build_image_blocks(doc.file_key, file_bytes)
+        if not image_blocks:
+            raise ValueError('File produced no renderable pages')
 
         # ── 3. Call Anthropic ─────────────────────────────────────────────────
-        extracted = _call_anthropic(images)
+        extracted = _call_anthropic(image_blocks)
 
         # ── 4. Save top-level COI metadata ───────────────────────────────────
         doc.insured_name = extracted.get('insured_name')
@@ -210,9 +226,10 @@ def extract_coi(self, document_id: str):
         raise self.retry(exc=exc)
 
 
-def _get_pdf_bytes(file_key: str) -> bytes:
+def _get_file_bytes(file_key: str) -> bytes:
     """
-    Download PDF from R2 (production) or read from /tmp (local dev when R2 not configured).
+    Download the uploaded file (PDF or image) from R2 (production) or read it
+    from /tmp (local dev when R2 is not configured).
     """
     from django.conf import settings
 
@@ -227,4 +244,4 @@ def _get_pdf_bytes(file_key: str) -> bytes:
         with open(local_path, 'rb') as f:
             return f.read()
 
-    raise FileNotFoundError(f'PDF not found locally at {local_path} and R2 is not configured')
+    raise FileNotFoundError(f'File not found locally at {local_path} and R2 is not configured')

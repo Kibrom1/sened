@@ -43,16 +43,18 @@ class COIDocumentListView(APIView):
         except Vendor.DoesNotExist:
             return Response({'error': 'Vendor not found'}, status=404)
 
-        # Validate file type
-        content_type = file.content_type or ''
-        if content_type != 'application/pdf' and not file.name.lower().endswith('.pdf'):
-            return Response({'error': 'Only PDF files are accepted'}, status=400)
+        # Validate file type — PDF or image (PNG/JPG/WEBP/GIF)
+        from apps.common.uploads import validate_coi_upload
+        ext, content_type, error = validate_coi_upload(file)
+        if error:
+            return Response({'error': error}, status=400)
 
-        # Generate a unique storage key
-        file_key = f'coi/{request.org_id}/{vendor.id}/{uuid.uuid4()}.pdf'
+        # Generate a unique storage key (preserve the real extension so the
+        # extraction pipeline can pick the right handling).
+        file_key = f'coi/{request.org_id}/{vendor.id}/{uuid.uuid4()}.{ext}'
 
         # Store the file: R2 in production, /tmp in local dev
-        _store_file(file, file_key, content_type='application/pdf')
+        _store_file(file, file_key, content_type=content_type)
 
         # Create the document record
         doc = COIDocument.objects.create(
@@ -158,6 +160,77 @@ class COIDocumentConfirmView(APIView):
         return Response(COIDocumentSerializer(
             COIDocument.objects.prefetch_related('coverages').get(id=doc.id)
         ).data)
+
+
+class COIDocumentBatchConfirmView(APIView):
+    """
+    POST /api/documents/confirm-batch/
+    Body: { "document_ids": ["...", "..."] }
+
+    Confirms multiple extracted documents in one call, accepting each
+    document's extracted coverage values as-is. Intended for the bulk-upload
+    workflow where the frontend has already determined which documents are
+    high-confidence (no low-confidence fields) and safe to auto-confirm.
+
+    Documents not in 'extracted' status, not in the caller's org, or not found
+    are skipped with a reason rather than failing the whole batch.
+
+    Returns: { "confirmed": [ids], "skipped": [{"id": ..., "reason": ...}] }
+    """
+
+    def post(self, request, *args, **kwargs):
+        document_ids = request.data.get('document_ids', [])
+        if not isinstance(document_ids, list) or not document_ids:
+            return Response({'error': 'document_ids must be a non-empty list'}, status=400)
+
+        # Single org-scoped query; anything missing is reported as skipped.
+        docs = {
+            str(d.id): d
+            for d in COIDocument.objects.for_org(request.org_id)
+            .filter(id__in=document_ids)
+            .prefetch_related('coverages')
+        }
+
+        now = timezone.now()
+        confirmed: list[str] = []
+        skipped: list[dict] = []
+        vendor_ids: set = set()
+
+        for raw_id in document_ids:
+            doc_id = str(raw_id)
+            doc = docs.get(doc_id)
+            if doc is None:
+                skipped.append({'id': doc_id, 'reason': 'not_found'})
+                continue
+            if doc.status == 'confirmed':
+                skipped.append({'id': doc_id, 'reason': 'already_confirmed'})
+                continue
+            if doc.status != 'extracted':
+                skipped.append({'id': doc_id, 'reason': f'status_{doc.status}'})
+                continue
+
+            # Confirm extracted values as-is (no edits in batch mode).
+            doc.coverages.all().update(
+                confirmed=True, confirmed_at=now, confirmed_by=request.auth_user,
+            )
+            doc.status = 'confirmed'
+            doc.save(update_fields=['status'])
+            confirmed.append(doc_id)
+            vendor_ids.add(str(doc.vendor_id))
+
+            from apps.common.activity import log_activity
+            log_activity(
+                request.org_id, actor=request.auth_user.email, action='coi_confirmed',
+                vendor=doc.vendor_id, detail={'document_id': doc_id, 'batch': True},
+            )
+
+        # One compliance check per affected vendor (not per document).
+        if vendor_ids:
+            from apps.compliance.tasks import run_compliance_check_for_vendor
+            for vid in vendor_ids:
+                run_compliance_check_for_vendor.delay(vid)
+
+        return Response({'confirmed': confirmed, 'skipped': skipped})
 
 
 class COIDocumentRetryView(APIView):
