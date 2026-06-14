@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Users,
   ClipboardList,
+  RefreshCw,
   CreditCard,
   LogOut,
   Shield,
@@ -29,6 +30,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard',    Icon: LayoutDashboard },
   { to: '/vendors',   label: 'Vendors',      Icon: Users },
   { to: '/profiles',  label: 'Requirements', Icon: ClipboardList },
+  { to: '/renewals',  label: 'Renewals',     Icon: RefreshCw },
   { to: '/billing',   label: 'Billing',      Icon: CreditCard },
 ]
 
@@ -39,6 +41,7 @@ function usePageTitle(): string {
   if (pathname.startsWith('/vendors') && pathname.split('/').length > 2) return 'Vendor detail'
   if (pathname.startsWith('/vendors')) return 'Vendors'
   if (pathname.startsWith('/profiles')) return 'Requirements'
+  if (pathname.startsWith('/renewals')) return 'Renewals'
   if (pathname.startsWith('/billing')) return 'Billing'
   return 'sened'
 }

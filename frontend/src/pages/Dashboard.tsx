@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { apiClient } from '@/api/client'
 import { documentsApi } from '@/api/documents'
-import { vendorsApi } from '@/api/vendors'
+import { vendorsApi, profilesApi } from '@/api/vendors'
 import type { ComplianceCheckWithVendor, DashboardBuckets } from '@/api/types'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -105,6 +105,14 @@ function useVendors() {
   return useQuery({
     queryKey: ['vendors'],
     queryFn: vendorsApi.list,
+    staleTime: 60_000,
+  })
+}
+
+function useProfiles() {
+  return useQuery({
+    queryKey: ['profiles'],
+    queryFn: profilesApi.list,
     staleTime: 60_000,
   })
 }
@@ -257,6 +265,7 @@ export default function DashboardPage() {
   const { data: buckets, isLoading, isError, refetch, isFetching } = useDashboard()
   const { data: docs } = useDocuments()
   const { data: vendors } = useVendors()
+  const { data: profiles } = useProfiles()
   const [activeBucket, setActiveBucket] = useState<BucketKey | null>(null)
 
   // Flatten buckets into one row list, tagged with bucket key
@@ -277,11 +286,14 @@ export default function DashboardPage() {
   }
   const totalIssues = counts.expired + counts.gaps_found + counts.needs_review
 
-  // Getting-started checklist (uses vendors/docs only)
+  // Getting-started checklist. A requirement profile comes first: without one,
+  // vendors can't be compliance-checked, so it's the true prerequisite step.
+  const hasProfile = (profiles?.length ?? 0) > 0
   const hasVendors = (vendors?.length ?? 0) > 0
   const hasDocs = (docs?.length ?? 0) > 0
   const hasConfirmed = (docs ?? []).some((d) => d.status === 'confirmed')
   const checklistSteps: ChecklistStep[] = [
+    { done: hasProfile, label: 'Create a requirement profile', to: '/profiles', cta: 'Create profile' },
     { done: hasVendors, label: 'Add your first vendor', to: '/vendors', cta: 'Add vendor' },
     { done: hasDocs, label: 'Upload a Certificate of Insurance', to: '/vendors', cta: 'Upload' },
     { done: hasConfirmed, label: 'Review and confirm extracted coverage', to: '/vendors', cta: 'Review' },

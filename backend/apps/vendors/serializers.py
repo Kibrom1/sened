@@ -29,3 +29,33 @@ class VendorSerializer(serializers.ModelSerializer):
                   'notes', 'requirement_profile', 'requirement_profile_name',
                   'status', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+
+class VendorListSerializer(VendorSerializer):
+    """
+    Vendor list view — adds the compliance-engine status so the Vendors page
+    and the Dashboard speak one status vocabulary (no date-derived "Active"
+    that can contradict the compliance "Gaps found" verdict).
+
+    Reads annotations set by VendorListView (latest_status / latest_reasons /
+    next_expiration). When no compliance check exists yet, status is 'no_data'.
+    """
+
+    compliance_status = serializers.SerializerMethodField()
+    compliance_reasons = serializers.SerializerMethodField()
+    next_expiration = serializers.SerializerMethodField()
+
+    class Meta(VendorSerializer.Meta):
+        fields = VendorSerializer.Meta.fields + [
+            'compliance_status', 'compliance_reasons', 'next_expiration',
+        ]
+
+    def get_compliance_status(self, obj):
+        return getattr(obj, 'latest_status', None) or 'no_data'
+
+    def get_compliance_reasons(self, obj):
+        return getattr(obj, 'latest_reasons', None) or []
+
+    def get_next_expiration(self, obj):
+        exp = getattr(obj, 'next_expiration_date', None)
+        return str(exp) if exp else None
