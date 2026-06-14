@@ -28,3 +28,8 @@ LOGGING = {}
 
 # No Sentry noise during tests
 SENTRY_DSN = ''
+
+# In-process cache — no Redis required for tests
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}
+}

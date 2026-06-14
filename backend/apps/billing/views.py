@@ -189,8 +189,8 @@ class StripeWebhookView(APIView):
             except Exception as e:
                 logger.error('Stripe webhook parse error: %s', e)
                 return Response({'error': 'Bad payload'}, status=400)
-        else:
-            # No webhook secret configured (local dev) — parse without verification
+        elif settings.DEBUG:
+            # No webhook secret configured — allowed in local dev (DEBUG) only
             import json
             try:
                 event = stripe.Event.construct_from(
@@ -199,6 +199,10 @@ class StripeWebhookView(APIView):
             except Exception as e:
                 logger.error('Stripe webhook parse error (no secret): %s', e)
                 return Response({'error': 'Bad payload'}, status=400)
+        else:
+            # Fail closed: never accept unverified webhook payloads outside dev
+            logger.error('Stripe webhook received but STRIPE_WEBHOOK_SECRET is not configured')
+            return Response({'error': 'Webhook not configured'}, status=503)
 
         event_type = event['type']
         logger.info('Stripe webhook received: %s', event_type)
@@ -269,6 +273,9 @@ def _handle_checkout_completed(session):
         subscription_status='active',
     )
     if updated:
+        from apps.common.activity import log_activity
+        log_activity(org_id, actor='stripe', action='subscription_activated',
+                     detail={'customer_id': customer_id})
         logger.info('checkout completed: org %s → active (customer %s)', org_id, customer_id)
     else:
         logger.warning('checkout completed: org %s not found', org_id)
@@ -306,9 +313,14 @@ def _handle_subscription_updated(subscription):
         logger.warning('subscription updated: no org found for customer %s', customer_id)
         return
 
+    previous = org.subscription_status
     org.stripe_subscription_id = subscription_id
     org.subscription_status = internal_status
     org.save(update_fields=['stripe_subscription_id', 'subscription_status'])
+    if previous != internal_status:
+        from apps.common.activity import log_activity
+        log_activity(org.id, actor='stripe', action='subscription_status_changed',
+                     detail={'from': previous, 'to': internal_status})
     logger.info(
         'subscription updated: org %s → %s (Stripe: %s)',
         org.id, internal_status, stripe_status,
@@ -330,8 +342,12 @@ def _handle_subscription_deleted(subscription):
         logger.warning('subscription deleted: no org found for customer %s', customer_id)
         return
 
+    previous = org.subscription_status
     org.subscription_status = 'canceled'
     org.save(update_fields=['subscription_status'])
+    from apps.common.activity import log_activity
+    log_activity(org.id, actor='stripe', action='subscription_status_changed',
+                 detail={'from': previous, 'to': 'canceled'})
     logger.info('subscription deleted: org %s → canceled', org.id)
 
 

@@ -1,46 +1,86 @@
-import { useState } from 'react'
+/**
+ * Dashboard — vendor compliance overview.
+ *
+ * Single source of truth: GET /api/dashboard/ (compliance buckets per vendor).
+ * The stat tiles and the table below render the SAME dataset, so counts always
+ * match what the table shows. Documents/vendors queries are used only for the
+ * getting-started checklist.
+ */
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { AlertCircle, Clock, Eye, CheckCircle } from 'lucide-react'
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle,
+  Download,
+  Eye,
+  FileText,
+  RefreshCw,
+  UserPlus,
+} from 'lucide-react'
 import { apiClient } from '@/api/client'
 import { documentsApi } from '@/api/documents'
-import type { COIDocumentListItem } from '@/api/documents'
-import type { DashboardBuckets } from '@/api/types'
+import { vendorsApi } from '@/api/vendors'
+import type { ComplianceCheckWithVendor, DashboardBuckets } from '@/api/types'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function isExpired(date: string | null) {
-  if (!date) return false
-  return new Date(date) < new Date()
-}
+type BucketKey = keyof DashboardBuckets
 
-function isExpiringSoon(date: string | null, days = 30) {
-  if (!date) return false
-  const d = new Date(date)
-  const now = new Date()
-  const cutoff = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
-  return d >= now && d <= cutoff
-}
+const BUCKET_ORDER: BucketKey[] = ['expired', 'gaps_found', 'needs_review', 'matches_requirements']
 
-/** Returns a short relative label: "in 12 days", "expired 3 days ago", etc. */
-function relativeDate(date: string | null): string {
+function fmtDate(date: string | null): string {
   if (!date) return '—'
-  const d = new Date(date)
-  const diffMs = d.getTime() - Date.now()
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24))
-  if (diffDays === 0) return 'today'
-  if (diffDays > 0) return `in ${diffDays}d`
-  return `${Math.abs(diffDays)}d ago`
+  return new Date(date).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
-type DocStatus = 'expired' | 'expiring_soon' | 'active' | 'unconfirmed' | 'processing'
+/** "in 12 days", "today", "3 days ago" — always shown next to the absolute date. */
+function relativeDays(date: string | null): string | null {
+  if (!date) return null
+  const diffDays = Math.round((new Date(date).getTime() - Date.now()) / 86_400_000)
+  if (diffDays === 0) return 'today'
+  if (diffDays > 0) return `in ${diffDays} day${diffDays !== 1 ? 's' : ''}`
+  return `${Math.abs(diffDays)} day${diffDays !== -1 ? 's' : ''} ago`
+}
 
-function docDisplayStatus(doc: COIDocumentListItem): DocStatus {
-  if (doc.status === 'processing' || doc.status === 'uploaded') return 'processing'
-  if (doc.status === 'extracted') return 'unconfirmed'
-  if (isExpired(doc.earliest_expiration)) return 'expired'
-  if (isExpiringSoon(doc.earliest_expiration)) return 'expiring_soon'
-  return 'active'
+// ── Status pill ────────────────────────────────────────────────────────────────
+
+const STATUS_META: Record<BucketKey, { label: string; pill: string; dot: string }> = {
+  expired: {
+    label: 'Expired',
+    pill: 'bg-rose-50 text-rose-700 border-rose-200',
+    dot: 'bg-rose-500',
+  },
+  gaps_found: {
+    label: 'Gaps found',
+    pill: 'bg-amber-50 text-amber-800 border-amber-200',
+    dot: 'bg-amber-500',
+  },
+  needs_review: {
+    label: 'Needs review',
+    pill: 'bg-slate-50 text-slate-600 border-slate-200',
+    dot: 'bg-slate-400',
+  },
+  matches_requirements: {
+    label: 'Matches requirements',
+    pill: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    dot: 'bg-emerald-500',
+  },
+}
+
+function StatusPill({ status }: { status: BucketKey }) {
+  const meta = STATUS_META[status]
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md border ${meta.pill}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </span>
+  )
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────────
@@ -49,7 +89,6 @@ function useDashboard() {
   return useQuery<DashboardBuckets>({
     queryKey: ['dashboard'],
     queryFn: () => apiClient.get<DashboardBuckets>('/dashboard/').then((r) => r.data),
-    retry: false,
     staleTime: 30_000,
   })
 }
@@ -62,18 +101,25 @@ function useDocuments() {
   })
 }
 
-// ── Skeleton ───────────────────────────────────────────────────────────────────
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse bg-gray-200 rounded ${className ?? ''}`} />
+function useVendors() {
+  return useQuery({
+    queryKey: ['vendors'],
+    queryFn: vendorsApi.list,
+    staleTime: 60_000,
+  })
 }
 
-function CardSkeleton() {
+// ── Skeletons ──────────────────────────────────────────────────────────────────
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-slate-200 rounded ${className ?? ''}`} />
+}
+
+function StatTileSkeleton() {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-card p-5">
-      <Skeleton className="w-5 h-5 mb-3" />
-      <Skeleton className="w-10 h-8 mb-2" />
-      <Skeleton className="w-20 h-3.5" />
+    <div className="card p-4">
+      <Skeleton className="w-24 h-3.5 mb-3" />
+      <Skeleton className="w-10 h-7" />
     </div>
   )
 }
@@ -81,291 +127,346 @@ function CardSkeleton() {
 function TableRowSkeleton() {
   return (
     <tr>
-      <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
-      <td className="px-4 py-3"><Skeleton className="h-4 w-28" /></td>
-      <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
-      <td className="px-4 py-3"><Skeleton className="h-5 w-20 rounded-full" /></td>
+      <td className="px-4 py-3"><Skeleton className="h-4 w-36" /></td>
+      <td className="px-4 py-3"><Skeleton className="h-5 w-24 rounded-md" /></td>
+      <td className="px-4 py-3"><Skeleton className="h-4 w-48" /></td>
+      <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
       <td className="px-4 py-3" />
     </tr>
   )
 }
 
-// ── Status pill ────────────────────────────────────────────────────────────────
+// ── Stat tile ──────────────────────────────────────────────────────────────────
 
-function DocStatusPill({ status }: { status: DocStatus }) {
-  const map: Record<DocStatus, { label: string; cls: string }> = {
-    expired:       { label: 'Expired',       cls: 'bg-red-100 text-red-700' },
-    expiring_soon: { label: 'Expiring soon', cls: 'bg-yellow-100 text-yellow-700' },
-    active:        { label: 'Active',        cls: 'bg-green-100 text-green-700' },
-    unconfirmed:   { label: 'Needs review',  cls: 'bg-blue-100 text-blue-700' },
-    processing:    { label: 'Processing',    cls: 'bg-gray-100 text-gray-500' },
-  }
-  const { label, cls } = map[status]
-  return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
-  )
-}
-
-// ── Summary card ───────────────────────────────────────────────────────────────
-
-type CardConfig = {
-  label: string
+function StatTile({
+  bucket, count, Icon, iconCls, active, onClick,
+}: {
+  bucket: BucketKey
   count: number
   Icon: React.ElementType
-  colorCls: string
-  borderCls: string
-  filter: DocStatus | null
-}
-
-function SummaryCard({
-  label, count, Icon, colorCls, borderCls, filter, activeFilter, onFilter,
-}: CardConfig & { activeFilter: DocStatus | null; onFilter: (f: DocStatus | null) => void }) {
-  const isActive = activeFilter === filter
+  iconCls: string
+  active: boolean
+  onClick: () => void
+}) {
   return (
     <button
-      onClick={() => onFilter(isActive ? null : filter)}
-      className={`text-left rounded-xl border p-5 shadow-card transition-all w-full ${borderCls} ${
-        isActive ? 'ring-2 ring-brand-400' : 'hover:shadow-card-md'
+      onClick={onClick}
+      aria-pressed={active}
+      className={`card text-left p-4 transition-colors duration-150 ${
+        active ? 'border-brand-500 ring-1 ring-brand-500' : 'hover:border-slate-300'
       }`}
     >
-      <div className="flex items-start justify-between mb-3">
-        <Icon className={`w-5 h-5 ${colorCls}`} />
-        {isActive && (
-          <span className="text-[10px] font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">
-            Filtered
-          </span>
-        )}
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`w-4 h-4 ${iconCls}`} />
+        <span className="text-xs font-medium text-slate-500">{STATUS_META[bucket].label}</span>
       </div>
-      <div className={`text-3xl font-bold ${colorCls}`}>{count}</div>
-      <div className="text-sm text-gray-500 mt-1 font-medium">{label}</div>
+      <div className="text-2xl font-semibold text-slate-900 tabular-nums">{count}</div>
     </button>
   )
+}
+
+// ── Reasons cell ───────────────────────────────────────────────────────────────
+
+function ReasonsCell({ reasons }: { reasons: Array<string | { reason?: string } | any> }) {
+  if (!reasons || reasons.length === 0) return <span className="text-slate-300">—</span>
+  const shown = reasons.slice(0, 2)
+  const more = reasons.length - shown.length
+  const norm = (r: any) => (typeof r === 'string' ? r : (r && typeof r.reason === 'string' ? r.reason : String(r)))
+  return (
+    <div className="space-y-0.5" title={reasons.map(norm).join('\n')}>
+      {shown.map((r, i) => (
+        <p key={i} className="text-xs text-slate-600 leading-snug">{norm(r)}</p>
+      ))}
+      {more > 0 && (
+        <p className="text-xs text-slate-400">+{more} more</p>
+      )}
+    </div>
+  )
+}
+
+// ── Getting started checklist ──────────────────────────────────────────────────
+
+type ChecklistStep = { done: boolean; label: string; to: string; cta: string }
+
+function GettingStarted({ steps }: { steps: ChecklistStep[] }) {
+  const done = steps.filter((s) => s.done).length
+  if (done === steps.length) return null
+
+  return (
+    <div className="card p-5 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">Getting started</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Finish setup to enable automated compliance checks.
+          </p>
+        </div>
+        <span className="text-xs font-medium text-slate-500">{done} of {steps.length} complete</span>
+      </div>
+      <ul className="space-y-2">
+        {steps.map((step) => (
+          <li key={step.label} className="flex items-center justify-between gap-4 py-2 px-3 rounded-md border border-slate-100 bg-slate-50/50">
+            <div className="flex items-center gap-2.5">
+              {step.done ? (
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <span className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
+              )}
+              <span className={`text-sm ${step.done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                {step.label}
+              </span>
+            </div>
+            {!step.done && (
+              <Link to={step.to} className="text-xs font-medium text-brand-600 hover:text-brand-700 shrink-0">
+                {step.cta} →
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// ── CSV export ─────────────────────────────────────────────────────────────────
+
+function exportCsv(rows: (ComplianceCheckWithVendor & { bucket: BucketKey })[]) {
+  const header = ['Vendor', 'Status', 'Issues', 'Next expiration', 'Last checked']
+  const lines = rows.map((r) => [
+    r.vendor_name,
+    STATUS_META[r.bucket].label,
+    (r.reasons ?? []).join('; '),
+    r.next_expiration ?? '',
+    r.checked_at ?? '',
+  ])
+  const csv = [header, ...lines]
+    .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `compliance-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { data: compliance } = useDashboard()
-  const { data: docs, isLoading: docsLoading } = useDocuments()
-  const [activeFilter, setActiveFilter] = useState<DocStatus | null>(null)
+  const { data: buckets, isLoading, isError, refetch, isFetching } = useDashboard()
+  const { data: docs } = useDocuments()
+  const { data: vendors } = useVendors()
+  const [activeBucket, setActiveBucket] = useState<BucketKey | null>(null)
 
-  const sortedDocs = (docs ?? []).slice().sort((a, b) => {
-    const priority: Record<DocStatus, number> = {
-      expired: 0, expiring_soon: 1, unconfirmed: 2, processing: 3, active: 4,
-    }
-    return priority[docDisplayStatus(a)] - priority[docDisplayStatus(b)]
-  })
+  // Flatten buckets into one row list, tagged with bucket key
+  const allRows = useMemo(() => {
+    if (!buckets) return []
+    return BUCKET_ORDER.flatMap((key) =>
+      (buckets[key] ?? []).map((row) => ({ ...row, bucket: key })),
+    )
+  }, [buckets])
 
-  const counts = {
-    expired:       sortedDocs.filter((d) => docDisplayStatus(d) === 'expired').length,
-    expiring_soon: sortedDocs.filter((d) => docDisplayStatus(d) === 'expiring_soon').length,
-    unconfirmed:   sortedDocs.filter((d) => docDisplayStatus(d) === 'unconfirmed').length,
-    active:        sortedDocs.filter((d) => docDisplayStatus(d) === 'active').length,
+  const visibleRows = activeBucket ? allRows.filter((r) => r.bucket === activeBucket) : allRows
+
+  const counts: Record<BucketKey, number> = {
+    expired: buckets?.expired.length ?? 0,
+    gaps_found: buckets?.gaps_found.length ?? 0,
+    needs_review: buckets?.needs_review.length ?? 0,
+    matches_requirements: buckets?.matches_requirements.length ?? 0,
   }
+  const totalIssues = counts.expired + counts.gaps_found + counts.needs_review
 
-  const finalCounts = compliance
-    ? {
-        expired:       compliance.expired.length,
-        expiring_soon: compliance.needs_review.length,
-        unconfirmed:   0,
-        active:        compliance.matches_requirements.length,
-      }
-    : counts
+  // Getting-started checklist (uses vendors/docs only)
+  const hasVendors = (vendors?.length ?? 0) > 0
+  const hasDocs = (docs?.length ?? 0) > 0
+  const hasConfirmed = (docs ?? []).some((d) => d.status === 'confirmed')
+  const checklistSteps: ChecklistStep[] = [
+    { done: hasVendors, label: 'Add your first vendor', to: '/vendors', cta: 'Add vendor' },
+    { done: hasDocs, label: 'Upload a Certificate of Insurance', to: '/vendors', cta: 'Upload' },
+    { done: hasConfirmed, label: 'Review and confirm extracted coverage', to: '/vendors', cta: 'Review' },
+  ]
 
-  const totalIssues = finalCounts.expired + finalCounts.expiring_soon + finalCounts.unconfirmed
-
-  const visibleDocs = activeFilter
-    ? sortedDocs.filter((d) => docDisplayStatus(d) === activeFilter)
-    : sortedDocs
-
-  const cards: CardConfig[] = [
-    {
-      label: 'Expired',
-      count: finalCounts.expired,
-      Icon: AlertCircle,
-      colorCls: 'text-red-600',
-      borderCls: finalCounts.expired > 0 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200',
-      filter: 'expired',
-    },
-    {
-      label: 'Expiring soon',
-      count: finalCounts.expiring_soon,
-      Icon: Clock,
-      colorCls: 'text-yellow-600',
-      borderCls: finalCounts.expiring_soon > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-white border-gray-200',
-      filter: 'expiring_soon',
-    },
-    {
-      label: 'Needs review',
-      count: finalCounts.unconfirmed,
-      Icon: Eye,
-      colorCls: 'text-blue-600',
-      borderCls: finalCounts.unconfirmed > 0 ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200',
-      filter: 'unconfirmed',
-    },
-    {
-      label: 'Active',
-      count: finalCounts.active,
-      Icon: CheckCircle,
-      colorCls: 'text-green-600',
-      borderCls: 'bg-white border-gray-200',
-      filter: 'active',
-    },
+  const tiles: { bucket: BucketKey; Icon: React.ElementType; iconCls: string }[] = [
+    { bucket: 'expired', Icon: AlertCircle, iconCls: 'text-rose-600' },
+    { bucket: 'gaps_found', Icon: AlertTriangle, iconCls: 'text-amber-600' },
+    { bucket: 'needs_review', Icon: Eye, iconCls: 'text-slate-500' },
+    { bucket: 'matches_requirements', Icon: CheckCircle, iconCls: 'text-emerald-600' },
   ]
 
   return (
-    <div className="px-6 py-8 max-w-5xl mx-auto">
-      {/* Page header — hidden on desktop (top bar shows title) */}
-      <div className="mb-8 lg:hidden">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+    <div className="px-6 py-6 max-w-6xl mx-auto">
+      {/* Page header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900">Vendor compliance</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {isError
+              ? 'Status unavailable'
+              : isLoading
+                ? 'Loading…'
+                : totalIssues > 0
+                  ? `${totalIssues} vendor${totalIssues !== 1 ? 's' : ''} need${totalIssues === 1 ? 's' : ''} attention`
+                  : 'All vendors match their requirements'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportCsv(visibleRows)}
+            disabled={visibleRows.length === 0}
+            className="btn-secondary"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </button>
+          <Link to="/vendors" className="btn-primary">
+            <UserPlus className="w-4 h-4" />
+            Add vendor
+          </Link>
+        </div>
       </div>
-      <p className="text-gray-500 text-sm mb-8 -mt-4 lg:mt-0">
-        {totalIssues > 0
-          ? `${totalIssues} item${totalIssues > 1 ? 's' : ''} need attention`
-          : 'All certificates are up to date'}
-      </p>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        {docsLoading
-          ? Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)
-          : cards.map((card) => (
-              <SummaryCard
-                key={card.label}
-                {...card}
-                activeFilter={activeFilter}
-                onFilter={setActiveFilter}
+      {/* Error state — never pretend things are fine */}
+      {isError && (
+        <div className="card border-rose-200 bg-rose-50/50 p-4 mb-6 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-rose-800">Couldn't load compliance data</p>
+              <p className="text-xs text-rose-700 mt-0.5">
+                The statuses shown may be incomplete. Retry or refresh the page.
+              </p>
+            </div>
+          </div>
+          <button onClick={() => refetch()} className="btn-secondary shrink-0" disabled={isFetching}>
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Getting started */}
+      {!isLoading && !isError && <GettingStarted steps={checklistSteps} />}
+
+      {/* Stat tiles — same dataset as the table below */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {isLoading
+          ? Array.from({ length: 4 }).map((_, i) => <StatTileSkeleton key={i} />)
+          : tiles.map(({ bucket, Icon, iconCls }) => (
+              <StatTile
+                key={bucket}
+                bucket={bucket}
+                count={counts[bucket]}
+                Icon={Icon}
+                iconCls={iconCls}
+                active={activeBucket === bucket}
+                onClick={() => setActiveBucket(activeBucket === bucket ? null : bucket)}
               />
             ))}
       </div>
 
-      {/* Certificate table */}
+      {/* Filter context */}
+      {activeBucket && (
+        <div className="mb-3 flex items-center gap-2 text-sm text-slate-600">
+          <span>
+            Showing {visibleRows.length} of {allRows.length} vendors ·{' '}
+            <span className="font-medium">{STATUS_META[activeBucket].label}</span>
+          </span>
+          <button
+            onClick={() => setActiveBucket(null)}
+            className="text-brand-600 hover:text-brand-700 font-medium"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Vendor compliance table */}
       <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="section-heading">Certificates</h2>
-            {activeFilter && (
-              <button
-                onClick={() => setActiveFilter(null)}
-                className="text-xs text-brand-600 hover:text-brand-700 font-medium"
-              >
-                Clear filter ×
-              </button>
-            )}
-          </div>
-          <Link to="/vendors" className="text-sm text-brand-600 hover:underline font-medium">
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="section-heading">Vendors</h2>
+          <Link to="/vendors" className="text-sm text-brand-600 hover:text-brand-700 font-medium">
             Manage vendors
           </Link>
         </div>
 
-        {docsLoading ? (
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 text-xs text-gray-500 font-medium">
-                <th className="px-4 py-3 text-left">Vendor</th>
-                <th className="px-4 py-3 text-left">Insured</th>
-                <th className="px-4 py-3 text-left">Expires</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3" />
+              <tr className="border-b border-slate-200 text-xs text-slate-500 font-medium bg-slate-50">
+                <th className="px-4 py-2.5 text-left">Vendor</th>
+                <th className="px-4 py-2.5 text-left">Status</th>
+                <th className="px-4 py-2.5 text-left">Issues</th>
+                <th className="px-4 py-2.5 text-left">Next expiration</th>
+                <th className="px-4 py-2.5 text-right">Last checked</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {Array.from({ length: 4 }).map((_, i) => <TableRowSkeleton key={i} />)}
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => <TableRowSkeleton key={i} />)
+              ) : allRows.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>
+                    <div className="py-16 flex flex-col items-center gap-3 text-center px-6">
+                      <FileText className="w-8 h-8 text-slate-300" />
+                      <div>
+                        <p className="font-medium text-slate-800">No vendors yet</p>
+                        <p className="text-sm text-slate-500 mt-1 max-w-sm">
+                          Add a vendor, then upload their Certificate of Insurance to see
+                          compliance status here.
+                        </p>
+                      </div>
+                      <Link to="/vendors" className="btn-primary mt-1">Add your first vendor</Link>
+                    </div>
+                  </td>
+                </tr>
+              ) : visibleRows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-12 text-center text-sm text-slate-500">
+                    No vendors in this bucket.{' '}
+                    <button onClick={() => setActiveBucket(null)} className="text-brand-600 font-medium hover:underline">
+                      Clear filter
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                visibleRows.map((row) => (
+                  <tr key={row.vendor_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <Link
+                        to={`/vendors/${row.vendor_id}`}
+                        className="font-medium text-slate-900 hover:text-brand-600"
+                      >
+                        {row.vendor_name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusPill status={row.bucket} />
+                    </td>
+                    <td className="px-4 py-3 max-w-md">
+                      <ReasonsCell reasons={row.reasons ?? []} />
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {row.next_expiration ? (
+                        <>
+                          <span className="text-slate-700">{fmtDate(row.next_expiration)}</span>
+                          <span className="text-slate-400 text-xs ml-1.5">
+                            {relativeDays(row.next_expiration)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs text-slate-400 whitespace-nowrap">
+                      {fmtDate(row.checked_at)}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        ) : sortedDocs.length === 0 ? (
-          /* ── Empty state ── */
-          <div className="py-16 flex flex-col items-center gap-3 text-center px-6">
-            <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
-              <CheckCircle className="w-7 h-7 text-gray-300" />
-            </div>
-            <p className="font-semibold text-gray-700">No certificates yet</p>
-            <p className="text-sm text-gray-400 max-w-xs">
-              Add a vendor and upload their COI to start tracking insurance compliance.
-            </p>
-            <Link
-              to="/vendors"
-              className="mt-1 btn-primary"
-            >
-              Add your first vendor
-            </Link>
-          </div>
-        ) : visibleDocs.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 text-sm">
-            No certificates match this filter.{' '}
-            <button onClick={() => setActiveFilter(null)} className="text-brand-600 hover:underline">
-              Clear filter
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-xs text-gray-500 font-medium">
-                  <th className="px-4 py-3 text-left">Vendor</th>
-                  <th className="px-4 py-3 text-left">Insured</th>
-                  <th className="px-4 py-3 text-left">Expires</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {visibleDocs.map((doc) => {
-                  const dStatus = docDisplayStatus(doc)
-                  return (
-                    <tr
-                      key={doc.id}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <Link
-                          to={`/vendors/${doc.vendor}`}
-                          className="font-medium text-gray-900 hover:text-brand-600 truncate block max-w-[160px]"
-                        >
-                          {doc.vendor_name}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 truncate max-w-[160px]">
-                        {doc.insured_name ?? '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        {doc.earliest_expiration ? (
-                          <span
-                            className={`font-medium ${
-                              isExpired(doc.earliest_expiration)
-                                ? 'text-red-600'
-                                : isExpiringSoon(doc.earliest_expiration)
-                                  ? 'text-yellow-600'
-                                  : 'text-gray-700'
-                            }`}
-                            title={new Date(doc.earliest_expiration).toLocaleDateString()}
-                          >
-                            {relativeDate(doc.earliest_expiration)}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <DocStatusPill status={dStatus} />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {dStatus === 'unconfirmed' && (
-                          <Link
-                            to={`/vendors/${doc.vendor}/upload`}
-                            className="btn-action"
-                          >
-                            Review
-                          </Link>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )

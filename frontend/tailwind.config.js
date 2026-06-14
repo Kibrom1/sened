@@ -11,6 +11,11 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+      // 4.5 (1.125rem) is used throughout tables/buttons but is not in
+      // Tailwind's default scale — without this it silently generates nothing.
+      spacing: {
+        '4.5': '1.125rem',
+      },
       colors: {
         // Indigo — distinctive, trustworthy, not default Tailwind blue
         brand: {
@@ -27,6 +32,20 @@ export default {
           950: '#1E1B4B',
         },
       },
+      // Quiet, enterprise-grade elevation. No decorative glows.
+      boxShadow: {
+        'premium': '0 1px 2px 0 rgb(0 0 0 / 0.04)',
+        'premium-lg': '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 4px 12px -4px rgb(0 0 0 / 0.05)',
+      },
+      animation: {
+        'fade-in-up': 'fadeInUp 0.25s ease-out forwards',
+      },
+      keyframes: {
+        fadeInUp: {
+          '0%': { opacity: '0', transform: 'translateY(4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
     },
   },
   plugins: [
@@ -35,10 +54,10 @@ export default {
     plugin(({ addUtilities }) => {
       addUtilities({
         '.shadow-card': {
-          boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
+          boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.04)',
         },
         '.shadow-card-md': {
-          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05)',
+          boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 4px 12px -4px rgb(0 0 0 / 0.05)',
         },
       })
     }),

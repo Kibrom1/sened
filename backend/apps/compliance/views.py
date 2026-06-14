@@ -6,6 +6,40 @@ from apps.vendors.models import Vendor
 from .models import ComplianceCheck
 
 
+class VendorComplianceView(APIView):
+    """
+    GET /api/compliance/vendor/<vendor_id>/
+    Returns the latest ComplianceCheck for a single vendor.
+    Used by VendorDetail to show a compliance badge + reasons.
+
+    Response:
+      { status, reasons, checked_at }          — when a check exists
+      { status: 'no_data', reasons: [], checked_at: null }  — no check yet
+    """
+
+    def get(self, request, vendor_id):
+        try:
+            vendor = Vendor.objects.for_org(request.org_id).get(id=vendor_id)
+        except Vendor.DoesNotExist:
+            return Response({'error': 'Vendor not found'}, status=404)
+
+        check = (
+            ComplianceCheck.objects
+            .filter(vendor=vendor, organization_id=request.org_id)
+            .order_by('-checked_at')
+            .first()
+        )
+
+        if not check:
+            return Response({'status': 'no_data', 'reasons': [], 'checked_at': None})
+
+        return Response({
+            'status': check.status,
+            'reasons': check.reasons or [],
+            'checked_at': check.checked_at.isoformat(),
+        })
+
+
 class DashboardView(APIView):
     """
     GET /api/dashboard/

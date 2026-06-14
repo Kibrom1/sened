@@ -64,19 +64,19 @@ async function uploadCOI(
 
 function BrandHeader() {
   return (
-    <div className="flex items-center gap-2 mb-8">
-      <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center">
-        <Shield className="text-white" style={{ width: 18, height: 18 }} />
+    <div className="flex items-center gap-2 mb-8 justify-center">
+      <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center shadow-sm text-white">
+        <Shield className="w-4 h-4" />
       </div>
-      <span className="font-bold text-gray-900 text-lg">sened</span>
+      <span className="font-extrabold text-slate-900 text-xl tracking-tight">sened</span>
     </div>
   )
 }
 
 function PageCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+    <div className="min-h-screen bg-slate-50/50 flex items-center justify-center px-4 py-16">
+      <div className="w-full max-w-md bg-white rounded-lg border border-slate-200/80 shadow-premium-lg p-8">
         {children}
       </div>
     </div>
@@ -132,10 +132,10 @@ function DropZone({
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         className={[
-          'border-2 border-dashed rounded-xl p-8 text-center transition-colors',
-          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-brand-400 hover:bg-brand-50',
-          dragging ? 'border-brand-500 bg-brand-50' : 'border-gray-300',
-          picked ? 'border-green-400 bg-green-50' : '',
+          'border-2 border-dashed rounded-lg p-8 text-center transition-all duration-300',
+          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+          dragging ? 'border-brand-500 bg-brand-50/30 scale-[1.01]' : 'border-slate-200 hover:border-brand-400 hover:bg-slate-50/50',
+          picked ? 'border-emerald-400 bg-emerald-50/30' : '',
         ].join(' ')}
       >
         <input
@@ -151,31 +151,35 @@ function DropZone({
         />
 
         {picked ? (
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-              <FileText className="w-6 h-6 text-green-600" />
+          <div className="flex flex-col items-center gap-3.5">
+            <div className="w-14 h-14 rounded-lg bg-emerald-50 border border-emerald-100/60 flex items-center justify-center shadow-sm">
+              <FileText className="w-7 h-7 text-emerald-600" />
             </div>
-            <p className="text-sm font-medium text-gray-900 break-all">{picked.name}</p>
-            <p className="text-xs text-gray-400">
-              {(picked.size / 1024).toFixed(0)} KB · click to change
-            </p>
+            <div>
+              <p className="text-sm font-bold text-slate-800 break-all px-4">{picked.name}</p>
+              <p className="text-[11px] font-semibold text-slate-400 mt-1 uppercase tracking-wider">
+                {(picked.size / 1024).toFixed(0)} KB · Click to change file
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-full bg-brand-50 flex items-center justify-center">
-              <Upload className="w-6 h-6 text-brand-400" />
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-14 h-14 rounded-lg bg-brand-50 border border-brand-100/60 flex items-center justify-center text-brand-500 shadow-sm">
+              <Upload className="w-6 h-6" />
             </div>
-            <p className="text-sm font-medium text-gray-700">
-              Drop your PDF here, or <span className="text-brand-600">browse</span>
-            </p>
-            <p className="text-xs text-gray-400">PDF only · max 20 MB</p>
+            <div>
+              <p className="text-sm font-bold text-slate-700">
+                Drop your COI PDF here, or <span className="text-brand-650 hover:text-brand-700 underline font-extrabold">browse</span>
+              </p>
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-1.5">PDF only · max 20 MB</p>
+            </div>
           </div>
         )}
       </div>
 
       {error && (
-        <p className="mt-2 text-xs text-red-600 flex items-center gap-1">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+        <p className="mt-2.5 text-xs text-rose-600 flex items-center gap-1.5 font-semibold bg-rose-50 border border-rose-100/60 px-3 py-1.5 rounded-xl">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
           {error}
         </p>
       )}
@@ -190,10 +194,8 @@ export default function MagicUploadPage() {
   const [state, setState] = useState<PageState>({ phase: 'loading' })
   const [file, setFile] = useState<File | null>(null)
   const [submitError, setSubmitError] = useState('')
-  // Capture ready-state info for post-upload reference
   const readyInfo = useRef<TokenInfo | null>(null)
 
-  // Verify token on mount
   useEffect(() => {
     if (!token) {
       setState({ phase: 'invalid', message: 'No upload token found in the URL.' })
@@ -245,9 +247,9 @@ export default function MagicUploadPage() {
     return (
       <PageCard>
         <BrandHeader />
-        <div className="flex flex-col items-center gap-3 py-8 text-gray-500">
-          <Loader2 className="w-7 h-7 animate-spin text-brand-500" />
-          <p className="text-sm">Verifying your upload link…</p>
+        <div className="flex flex-col items-center gap-4 py-10 text-slate-500">
+          <Loader2 className="w-8 h-8 animate-spin text-brand-650" />
+          <p className="text-sm font-semibold text-slate-400">Verifying secure upload token…</p>
         </div>
       </PageCard>
     )
@@ -257,12 +259,12 @@ export default function MagicUploadPage() {
     return (
       <PageCard>
         <BrandHeader />
-        <div className="flex flex-col items-center gap-3 text-center py-4">
-          <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
-            <AlertCircle className="w-7 h-7 text-red-400" />
+        <div className="flex flex-col items-center gap-3.5 text-center py-4">
+          <div className="w-14 h-14 rounded-lg bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shadow-sm">
+            <AlertCircle className="w-7 h-7" />
           </div>
-          <h2 className="text-lg font-bold text-gray-900">Link not valid</h2>
-          <p className="text-sm text-gray-500 max-w-xs">{state.message}</p>
+          <h2 className="text-lg font-bold text-slate-800 tracking-tight">Invalid Link</h2>
+          <p className="text-xs font-semibold text-slate-400 max-w-xs mt-1 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">{state.message}</p>
         </div>
       </PageCard>
     )
@@ -272,14 +274,14 @@ export default function MagicUploadPage() {
     return (
       <PageCard>
         <BrandHeader />
-        <div className="flex flex-col items-center gap-3 text-center py-4">
-          <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center">
-            <CheckCircle className="w-7 h-7 text-green-500" />
+        <div className="flex flex-col items-center gap-4 text-center py-4">
+          <div className="w-14 h-14 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
+            <CheckCircle className="w-7 h-7" />
           </div>
-          <h2 className="text-lg font-bold text-gray-900">Already uploaded</h2>
-          <p className="text-sm text-gray-500 max-w-xs">
-            A certificate for <strong>{state.vendor_name}</strong> has already been submitted
-            to <strong>{state.org_name}</strong>. No further action is needed.
+          <h2 className="text-lg font-bold text-slate-800 tracking-tight">Already Submitted</h2>
+          <p className="text-sm text-slate-500 max-w-xs leading-relaxed">
+            A certificate for <strong>{state.vendor_name}</strong> has already been successfully uploaded
+            for <strong>{state.org_name}</strong>. No further action is required.
           </p>
         </div>
       </PageCard>
@@ -290,18 +292,17 @@ export default function MagicUploadPage() {
     return (
       <PageCard>
         <BrandHeader />
-        <div className="flex flex-col items-center gap-3 text-center py-4">
-          <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center">
-            <CheckCircle className="w-7 h-7 text-green-500" />
+        <div className="flex flex-col items-center gap-4 text-center py-4">
+          <div className="w-14 h-14 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
+            <CheckCircle className="w-7 h-7" />
           </div>
-          <h2 className="text-lg font-bold text-gray-900">Certificate received!</h2>
-          <p className="text-sm text-gray-500 max-w-xs">
-            Your Certificate of Insurance has been securely submitted to{' '}
-            <strong>{state.org_name}</strong> and is being processed. No further action
-            is needed.
+          <h2 className="text-lg font-bold text-slate-800 tracking-tight">Certificate Received</h2>
+          <p className="text-sm text-slate-500 max-w-xs leading-relaxed">
+            Your Certificate of Insurance has been securely uploaded to{' '}
+            <strong>{state.org_name}</strong> and is being evaluated. This usually takes 1–2 minutes.
           </p>
-          <p className="text-xs text-gray-400 mt-1">
-            You'll be contacted if anything else is required.
+          <p className="text-xs text-slate-400 font-semibold mt-1 max-w-xs text-center leading-relaxed">
+            We will contact you if any coverage limits require review. No further action is needed right now.
           </p>
         </div>
       </PageCard>
@@ -312,45 +313,50 @@ export default function MagicUploadPage() {
     return (
       <PageCard>
         <BrandHeader />
-        <div className="flex flex-col items-center gap-4 py-4">
-          <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
-          <p className="text-sm font-medium text-gray-700">Uploading your certificate…</p>
-          <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+        <div className="flex flex-col items-center gap-5 py-4">
+          <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+          <p className="text-sm font-bold text-slate-700">Uploading certificate to secure vault…</p>
+          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/50">
             <div
-              className="bg-brand-600 h-2 rounded-full transition-all duration-300"
+              className="bg-brand-600 h-full rounded-full transition-all duration-300"
               style={{ width: `${state.progress}%` }}
             />
           </div>
-          <p className="text-xs text-gray-400">{state.progress}%</p>
+          <p className="text-xs font-bold text-slate-400">{state.progress}% complete</p>
         </div>
       </PageCard>
     )
   }
 
-  // state.phase === 'ready'
   const { info } = state
-  const greeting = info.contact_name ? `Hi ${info.contact_name},` : 'Hello,'
 
   return (
     <PageCard>
       <BrandHeader />
 
-      <h1 className="text-xl font-bold text-gray-900 mb-2">
-        Certificate of Insurance Required
+      {/* Request context */}
+      <div className="mb-6 p-4.5 bg-slate-50 border border-slate-200 rounded-lg text-sm">
+        <p className="text-xs text-slate-400 font-medium mb-1">Compliance Requestor</p>
+        <p className="font-bold text-slate-800">{info.org_name}</p>
+        {info.contact_name && (
+          <p className="text-xs text-slate-500 mt-1 font-medium">Hello {info.contact_name},</p>
+        )}
+      </div>
+
+      <h1 className="text-lg font-bold text-slate-900 mb-2 tracking-tight">
+        Submit COI for <span className="text-brand-650">{info.vendor_name}</span>
       </h1>
-      <p className="text-sm text-gray-500 mb-6">
-        {greeting} <strong>{info.org_name}</strong> needs an updated Certificate of Insurance
-        from <strong>{info.vendor_name}</strong>. Please upload your current COI below —
-        no login required.
+      <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+        Please upload your Certificate of Insurance. <strong>{info.org_name}</strong> will evaluate coverage parameters automatically.
       </p>
 
-      <div className="mb-5">
+      <div className="mb-6">
         <DropZone onFile={setFile} disabled={false} />
       </div>
 
       {submitError && (
-        <p className="mb-4 text-xs text-red-600 flex items-center gap-1">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+        <p className="mb-4 text-xs text-rose-600 flex items-center gap-1.5 font-semibold bg-rose-50 border border-rose-100/60 p-2.5 rounded-xl">
+          <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
           {submitError}
         </p>
       )}
@@ -364,7 +370,7 @@ export default function MagicUploadPage() {
         Submit Certificate of Insurance
       </button>
 
-      <p className="text-xs text-gray-400 text-center mt-4">
+      <p className="text-xs text-slate-400 text-center mt-4">
         Secured by sened · your file is encrypted in transit and at rest
       </p>
     </PageCard>

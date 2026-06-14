@@ -15,7 +15,13 @@ PUBLIC_PATHS = {
 def is_public_path(path: str) -> bool:
     if path.startswith('/upload/'):
         return True
+    # Vendor-facing magic-link upload — token in URL is the access control
+    if path.startswith('/api/magic-upload/'):
+        return True
     if path.startswith('/api/webhooks/'):
+        return True
+    # Stripe webhook — authenticated via Stripe signature, not JWT
+    if path.startswith('/api/billing/webhook/'):
         return True
     if path.startswith('/api/internal/'):
         return True
@@ -126,5 +132,23 @@ class TenantAuthMiddleware:
         # Attach to request — all views use these, never trust client-supplied org IDs
         request.auth_user = user
         request.org_id = user.organization_id
+
+        # Subscription enforcement: canceled orgs are read-only.
+        # Data stays visible (GET allowed); writes are blocked except billing
+        # endpoints so the user can re-subscribe. past_due keeps full access
+        # (frontend shows a banner).
+        if (
+            user.organization.subscription_status == 'canceled'
+            and request.method not in ('GET', 'HEAD', 'OPTIONS')
+            and not request.path.startswith('/api/billing/')
+        ):
+            return JsonResponse(
+                {
+                    'error': 'Your subscription is canceled — your account is read-only.',
+                    'detail': 'Re-subscribe on the Billing page to make changes.',
+                    'code': 'subscription_canceled',
+                },
+                status=402,
+            )
 
         return self.get_response(request)

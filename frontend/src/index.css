@@ -4,45 +4,68 @@
 
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased;
     font-family: 'Inter', system-ui, sans-serif;
   }
 
   /* Consistent focus ring across all interactive elements */
   :focus-visible {
-    @apply outline-none ring-2 ring-brand-500 ring-offset-1;
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2;
+  }
+
+  /* Premium scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
   }
 }
 
 @layer components {
-  /* Reusable card surface */
+  /* Reusable card surface — flat, quiet elevation */
   .card {
-    @apply bg-white rounded-xl border border-gray-200;
-    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    @apply bg-white rounded-lg border border-slate-200 shadow-card;
+  }
+
+  .card-interactive {
+    @apply card hover:border-slate-300 cursor-pointer transition-colors duration-150;
   }
 
   /* Reusable section heading inside a card */
   .section-heading {
-    @apply text-base font-semibold text-gray-900;
+    @apply text-sm font-semibold text-slate-900;
+  }
+
+  /* Inputs */
+  .input-premium {
+    @apply w-full border border-slate-300 bg-white text-slate-900 placeholder-slate-400
+           rounded-md px-3 py-2 text-sm outline-none transition-colors duration-150
+           focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
   }
 
   /* Primary button */
   .btn-primary {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium
-           rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed
-           transition-colors;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium
+           rounded-md hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed
+           shadow-sm transition-colors duration-150;
   }
 
   /* Secondary / outline button */
   .btn-secondary {
-    @apply inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700
-           text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50
-           transition-colors;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700
+           text-sm font-medium rounded-md hover:bg-slate-50 hover:text-slate-900
+           disabled:opacity-50 transition-colors duration-150;
   }
 
-  /* Small "Review" action button */
+  /* Small inline action button (table rows) */
   .btn-action {
-    @apply inline-flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md
-           border border-brand-300 text-brand-700 hover:bg-brand-50 transition-colors;
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md
+           border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400
+           transition-colors duration-150;
   }
 }

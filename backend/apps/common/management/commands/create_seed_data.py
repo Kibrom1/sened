@@ -642,7 +642,7 @@ class Command(BaseCommand):
                         document=doc,
                         status=cc_status,
                         reasons=[] if cc_status == 'matches_requirements'
-                                else [{'reason': 'Coverage expired or missing'}],
+                                else ['Coverage expired or missing'],
                     )
 
         counts = {

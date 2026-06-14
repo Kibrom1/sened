@@ -276,12 +276,14 @@ def _send_email(to: str, subject: str, html: str, from_address: str, api_key: st
 
 def _vendor_rows(vendors: list, color: str) -> str:
     """Render a list of vendor issue rows as HTML table rows."""
+    from django.utils.html import escape
+
     rows = []
     for v in vendors:
         reasons = v.latest_reasons or []
         reason_html = (
             '<ul style="margin:4px 0 0 0;padding-left:18px;color:#6b7280;font-size:13px;">'
-            + ''.join(f'<li>{r}</li>' for r in reasons)
+            + ''.join(f'<li>{escape(r)}</li>' for r in reasons)
             + '</ul>'
             if reasons else ''
         )
@@ -290,7 +292,7 @@ def _vendor_rows(vendors: list, color: str) -> str:
           <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top;">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
                          background:{color};margin-right:8px;margin-bottom:1px;vertical-align:middle;"></span>
-            <strong style="font-size:14px;color:#111827;">{v.name}</strong>
+            <strong style="font-size:14px;color:#111827;">{escape(v.name)}</strong>
             {reason_html}
           </td>
         </tr>""")
@@ -328,6 +330,10 @@ def _build_digest_html(
     needs_review: list,
     dashboard_url: str,
 ) -> str:
+    from django.utils.html import escape
+    org_name = escape(org_name)
+    owner_name = escape(owner_name)
+
     total = len(expired) + len(gaps_found) + len(needs_review)
     headline = (
         f'{total} vendor{"s" if total != 1 else ""} '

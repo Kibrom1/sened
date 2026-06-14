@@ -1,6 +1,15 @@
 # sened
 
-Automated certificate of insurance (COI) tracking for businesses that manage subcontractors and vendors.
+**Automated certificate of insurance (COI) tracking for businesses that manage subcontractors and vendors.**
+
+---
+
+## About the Project
+
+Sened is a platform designed to automate and streamline the process of tracking certificates of insurance (COIs) for businesses working with subcontractors and vendors. It features multi-tenant support, compliance rule management, AI-powered document extraction, renewal scheduling, and Stripe billing integration. The backend is built with Django and Django REST Framework, while the frontend uses React, Vite, and Tailwind CSS.
+
+**Looking for a team member:**
+If you're interested in joining the project and contributing to a modern SaaS platform in the insurtech space, please reach out! We're looking for collaborators passionate about building robust, user-friendly software.
 
 ---
 

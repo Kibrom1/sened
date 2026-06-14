@@ -17,7 +17,7 @@ export default function LoadingSpinner({ fullScreen, size = 8 }: Props) {
 
   if (fullScreen) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         {spinner}
       </div>
     )
