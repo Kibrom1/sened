@@ -26,6 +26,16 @@ SECURE_HSTS_PRELOAD = True
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
+# Trust the X-Forwarded-Proto header from Fly.io's proxy so SSL redirect and
+# secure-cookie logic see the original https scheme.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Explicit header hardening (CSP/Permissions-Policy come from
+# SecurityHeadersMiddleware; these are enforced by Django's SecurityMiddleware).
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+X_FRAME_OPTIONS = 'DENY'
+
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
