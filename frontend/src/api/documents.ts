@@ -40,6 +40,17 @@ export const documentsApi = {
       .post<COIDocument>(`/documents/${docId}/confirm/`, { coverages })
       .then((r) => r.data),
 
+  /** Confirm multiple extracted documents at once (bulk upload). */
+  confirmBatch: (documentIds: string[]) =>
+    apiClient
+      .post<BatchConfirmResult>('/documents/confirm-batch/', { document_ids: documentIds })
+      .then((r) => r.data),
+
   retry: (docId: string) =>
     apiClient.post(`/documents/${docId}/retry/`).then((r) => r.data),
+}
+
+export interface BatchConfirmResult {
+  confirmed: string[]
+  skipped: Array<{ id: string; reason: string }>
 }

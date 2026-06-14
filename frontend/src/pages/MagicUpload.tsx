@@ -100,8 +100,10 @@ function DropZone({
   const handleFile = useCallback(
     (f: File) => {
       setError('')
-      if (!f.name.toLowerCase().endsWith('.pdf') && f.type !== 'application/pdf') {
-        setError('Only PDF files are accepted.')
+      const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+      const acceptedExts = ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif']
+      if (!acceptedExts.includes(ext) && !f.type.startsWith('image/') && f.type !== 'application/pdf') {
+        setError('Upload a PDF or image (PNG, JPG, WEBP, or GIF).')
         return
       }
       if (f.size > 20 * 1024 * 1024) {
@@ -141,7 +143,7 @@ function DropZone({
         <input
           ref={inputRef}
           type="file"
-          accept=".pdf,application/pdf"
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,application/pdf,image/*"
           className="hidden"
           disabled={disabled}
           onChange={(e) => {
@@ -169,9 +171,9 @@ function DropZone({
             </div>
             <div>
               <p className="text-sm font-bold text-slate-700">
-                Drop your COI PDF here, or <span className="text-brand-650 hover:text-brand-700 underline font-extrabold">browse</span>
+                Drop your COI here, or <span className="text-brand-650 hover:text-brand-700 underline font-extrabold">browse</span>
               </p>
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-1.5">PDF only · max 20 MB</p>
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-1.5">PDF or photo · max 20 MB</p>
             </div>
           </div>
         )}

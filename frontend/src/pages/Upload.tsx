@@ -1,11 +1,22 @@
 import { useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, FileText, CheckCircle, RotateCcw, ExternalLink, ArrowLeft } from 'lucide-react'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, FileText, CheckCircle, RotateCcw, ExternalLink, ArrowLeft, Loader2, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import { documentsApi } from '@/api/documents'
-import type { ExtractedCoverage } from '@/api/types'
+import type { COIDocument, ExtractedCoverage } from '@/api/types'
 import LoadingSpinner from '@/components/LoadingSpinner'
+
+const NO_TOUCHED: Set<string> = new Set()
+
+// Accepted COI upload types — PDF or image (vendors often photograph a cert).
+const ACCEPTED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif']
+const ACCEPT_ATTR = '.pdf,.png,.jpg,.jpeg,.webp,.gif,application/pdf,image/*'
+
+function isAcceptedFile(name: string): boolean {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  return ACCEPTED_EXTENSIONS.includes(ext)
+}
 
 // ── Status polling ─────────────────────────────────────────────────────────────
 
@@ -293,15 +304,24 @@ export default function UploadPage() {
 
   const preloadDocId = searchParams.get('docId')
   const [uploadedDocId, setUploadedDocId] = useState<string | null>(preloadDocId)
+  const [bulkDocIds, setBulkDocIds] = useState<string[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [coverageEdits, setCoverageEdits] = useState<Record<string, Partial<ExtractedCoverage>>>({})
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set())
 
-  // ── Upload mutation ──────────────────────────────────────────────────────────
+  // ── Upload mutation (single file) ─────────────────────────────────────────────
   const uploadMutation = useMutation({
     mutationFn: (file: File) => documentsApi.upload(vendorId!, file),
     onSuccess: (doc) => setUploadedDocId(doc.id),
     onError: () => toast.error('Upload failed. Please try again.'),
+  })
+
+  // ── Bulk upload mutation (multiple files) ─────────────────────────────────────
+  const bulkUploadMutation = useMutation({
+    mutationFn: (files: File[]) =>
+      Promise.all(files.map((f) => documentsApi.upload(vendorId!, f))),
+    onSuccess: (docs) => setBulkDocIds(docs.map((d) => d.id)),
+    onError: () => toast.error('Some uploads failed. Please try again.'),
   })
 
   // ── Status polling ───────────────────────────────────────────────────────────
@@ -335,34 +355,54 @@ export default function UploadPage() {
     onError: () => toast.error('Retry failed. Please try again.'),
   })
 
-  // ── File handling ────────────────────────────────────────────────────────────
-  const handleFile = useCallback(
-    (file: File) => {
-      if (!file.name.toLowerCase().endsWith('.pdf')) {
-        toast.error('Please upload a PDF file.')
+  // ── File handling (single or bulk) ────────────────────────────────────────────
+  const handleFiles = useCallback(
+    (fileList: File[]) => {
+      const accepted = fileList.filter((f) => isAcceptedFile(f.name))
+      if (accepted.length === 0) {
+        toast.error('Please upload PDF or image files (PNG, JPG, WEBP, GIF).')
         return
       }
-      uploadMutation.mutate(file)
+      if (accepted.length < fileList.length) {
+        toast.error('Some unsupported files were skipped.')
+      }
+      if (accepted.length === 1) {
+        uploadMutation.mutate(accepted[0])
+      } else {
+        bulkUploadMutation.mutate(accepted)
+      }
     },
-    [uploadMutation],
+    [uploadMutation, bulkUploadMutation],
   )
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
       setIsDragging(false)
-      const file = e.dataTransfer.files[0]
-      if (file) handleFile(file)
+      const files = Array.from(e.dataTransfer.files)
+      if (files.length) handleFiles(files)
     },
-    [handleFile],
+    [handleFiles],
   )
 
   const handleTouch = useCallback((key: string) => {
     setTouchedFields((prev) => new Set(prev).add(key))
   }, [])
 
+  // ── Render: bulk review (multiple files uploaded) ────────────────────────────
+  if (bulkDocIds.length > 0) {
+    return (
+      <BulkReview
+        docIds={bulkDocIds}
+        vendorId={vendorId!}
+        onUploadMore={() => { setBulkDocIds([]); bulkUploadMutation.reset() }}
+      />
+    )
+  }
+
   // ── Render: upload state ─────────────────────────────────────────────────────
   if (!uploadedDocId) {
+    const isUploading = uploadMutation.isPending || bulkUploadMutation.isPending
     return (
       <div className="px-8 py-8 max-w-2xl mx-auto">
         <Link
@@ -373,13 +413,18 @@ export default function UploadPage() {
           Back to vendor
         </Link>
         <p className="text-slate-500 text-sm mb-8">
-          Upload a Certificate of Insurance PDF. Claude will extract coverage details automatically.
+          Upload one or more Certificates of Insurance — PDF or image (PNG, JPG, WEBP, GIF).
+          Claude extracts coverage details automatically.
         </p>
 
-        {uploadMutation.isPending ? (
+        {isUploading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <LoadingSpinner />
-            <p className="text-sm font-semibold text-slate-400">Uploading certificate to secure storage…</p>
+            <p className="text-sm font-semibold text-slate-400">
+              {bulkUploadMutation.isPending
+                ? 'Uploading certificates to secure storage…'
+                : 'Uploading certificate to secure storage…'}
+            </p>
           </div>
         ) : (
           <div
@@ -396,17 +441,18 @@ export default function UploadPage() {
             <div className="w-16 h-16 rounded-lg bg-brand-50 border border-brand-100/60 flex items-center justify-center mx-auto mb-5 shadow-sm text-brand-500">
               <FileText className="w-8 h-8" />
             </div>
-            <p className="text-slate-800 font-bold">Drag and drop your COI PDF here</p>
-            <p className="text-slate-400 text-xs mt-1.5 font-medium">Accepts standard PDF files up to 10MB</p>
+            <p className="text-slate-800 font-bold">Drag and drop your COI files here</p>
+            <p className="text-slate-400 text-xs mt-1.5 font-medium">PDF or image (PNG, JPG, WEBP, GIF) — one or more, up to 10MB each</p>
             <button className="mt-5 btn-secondary inline-flex">Browse local files</button>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,application/pdf"
+              accept={ACCEPT_ATTR}
+              multiple
               className="hidden"
               onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) handleFile(file)
+                const files = Array.from(e.target.files ?? [])
+                if (files.length) handleFiles(files)
               }}
             />
           </div>
@@ -615,6 +661,173 @@ export default function UploadPage() {
           isPending={confirmMutation.isPending}
           onConfirm={() => confirmMutation.mutate()}
         />
+      )}
+    </div>
+  )
+}
+
+// ── Bulk review (multi-file upload) ──────────────────────────────────────────
+
+type BulkDoc = COIDocument & { file_url: string | null }
+
+const BULK_STATUS_META: Record<
+  string,
+  { label: string; cls: string; dot: string }
+> = {
+  uploaded:   { label: 'Queued',      cls: 'bg-slate-50 text-slate-500 border-slate-200', dot: 'bg-slate-400' },
+  processing: { label: 'Extracting',  cls: 'bg-indigo-50 text-indigo-700 border-indigo-200', dot: 'bg-indigo-500 animate-pulse' },
+  extracted:  { label: 'Ready',       cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  confirmed:  { label: 'Confirmed',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  failed:     { label: 'Failed',      cls: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500' },
+}
+
+function BulkReview({
+  docIds,
+  vendorId,
+  onUploadMore,
+}: {
+  docIds: string[]
+  vendorId: string
+  onUploadMore: () => void
+}) {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  const results = useQueries({
+    queries: docIds.map((id) => ({
+      queryKey: ['document', id],
+      queryFn: () => documentsApi.get(id),
+      refetchInterval: (query: { state: { data?: BulkDoc } }) => {
+        const status = query.state.data?.status
+        if (!status || ['extracted', 'confirmed', 'failed'].includes(status)) return false
+        return 2000
+      },
+    })),
+  })
+
+  const docs = results.map((r) => r.data).filter(Boolean) as BulkDoc[]
+  const total = docIds.length
+  const isTerminal = (s: string) => ['extracted', 'confirmed', 'failed'].includes(s)
+  const extractedCount = docs.filter((d) => isTerminal(d.status)).length
+  const confirmedCount = docs.filter((d) => d.status === 'confirmed').length
+
+  const lowConfOf = (d: BulkDoc) => countLowConfidenceFields(d.coverages, NO_TOUCHED)
+  const readyIds = docs
+    .filter((d) => d.status === 'extracted' && lowConfOf(d) === 0)
+    .map((d) => d.id)
+  const needsReviewCount = docs.filter((d) => d.status === 'extracted' && lowConfOf(d) > 0).length
+  const allDone = docs.length === total && docs.every((d) => d.status === 'confirmed' || d.status === 'failed')
+
+  const batchMutation = useMutation({
+    mutationFn: () => documentsApi.confirmBatch(readyIds),
+    onSuccess: (res) => {
+      res.confirmed.forEach((id) => queryClient.invalidateQueries({ queryKey: ['document', id] }))
+      queryClient.invalidateQueries({ queryKey: ['documents'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success(`${res.confirmed.length} certificate${res.confirmed.length !== 1 ? 's' : ''} confirmed`)
+    },
+    onError: () => toast.error('Batch confirm failed. Please try again.'),
+  })
+
+  const pct = total > 0 ? Math.round((extractedCount / total) * 100) : 0
+
+  return (
+    <div className="px-8 py-8 max-w-3xl mx-auto">
+      <Link
+        to={`/vendors/${vendorId}`}
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-600 mb-5 uppercase tracking-wider transition-colors"
+      >
+        <ArrowLeft className="w-3.5 h-3.5" />
+        Back to vendor
+      </Link>
+
+      <h1 className="text-2xl font-bold text-slate-900 tracking-tight mb-1">Bulk upload</h1>
+      <p className="text-slate-500 text-sm mb-6">
+        {extractedCount} of {total} extracted{confirmedCount > 0 ? ` · ${confirmedCount} confirmed` : ''}.
+      </p>
+
+      {/* Aggregate progress */}
+      <div className="mb-6">
+        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="h-full bg-brand-500 transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Per-document list */}
+      <div className="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100 mb-6">
+        {docIds.map((id, i) => {
+          const d = docs.find((x) => x.id === id)
+          const status = d?.status ?? 'uploaded'
+          const meta = BULK_STATUS_META[status] ?? BULK_STATUS_META.uploaded
+          const low = d ? lowConfOf(d) : 0
+          return (
+            <div key={id} className="flex items-center justify-between gap-4 px-5 py-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">
+                    {d?.insured_name || `Certificate ${i + 1}`}
+                  </p>
+                  {status === 'extracted' && low > 0 && (
+                    <p className="text-xs text-amber-700">{low} field{low !== 1 ? 's' : ''} need review</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${meta.cls}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                  {meta.label}
+                </span>
+                {status === 'extracted' && low > 0 && (
+                  <Link
+                    to={`/vendors/${vendorId}/upload?docId=${id}`}
+                    className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+                  >
+                    Review →
+                  </Link>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => batchMutation.mutate()}
+          disabled={readyIds.length === 0 || batchMutation.isPending}
+          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+        >
+          {batchMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+          Confirm {readyIds.length} high-confidence
+        </button>
+        {allDone ? (
+          <button onClick={() => navigate(`/vendors/${vendorId}`)} className="btn-secondary">
+            Done
+          </button>
+        ) : (
+          <button onClick={onUploadMore} className="btn-secondary">
+            Upload more
+          </button>
+        )}
+        {extractedCount < total && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            <Clock className="w-3.5 h-3.5" />
+            Waiting on {total - extractedCount} more…
+          </span>
+        )}
+      </div>
+
+      {needsReviewCount > 0 && (
+        <p className="mt-4 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          {needsReviewCount} certificate{needsReviewCount !== 1 ? 's' : ''} ha{needsReviewCount !== 1 ? 've' : 's'} low-confidence
+          fields and must be reviewed individually before confirming — use the “Review” links above.
+        </p>
       )}
     </div>
   )

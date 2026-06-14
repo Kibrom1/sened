@@ -156,17 +156,19 @@ class MagicUploadView(APIView):
         if not file:
             return Response({'error': 'No file provided.'}, status=400)
 
-        content_type = file.content_type or ''
-        if content_type != 'application/pdf' and not file.name.lower().endswith('.pdf'):
-            return Response({'error': 'Only PDF files are accepted.'}, status=400)
+        # Accept PDF or image (vendors often photograph their certificate).
+        from apps.common.uploads import validate_coi_upload
+        ext, content_type, error = validate_coi_upload(file)
+        if error:
+            return Response({'error': error}, status=400)
 
         vendor = renewal.vendor
         org = renewal.organization
 
-        file_key = f'coi/{org.id}/{vendor.id}/magic-{uuid.uuid4()}.pdf'
+        file_key = f'coi/{org.id}/{vendor.id}/magic-{uuid.uuid4()}.{ext}'
 
         # Store: R2 in production, /tmp fallback in local dev
-        _store_file(file, file_key)
+        _store_file(file, file_key, content_type=content_type)
 
         from apps.documents.models import COIDocument
         from apps.documents.tasks import extract_coi
@@ -233,11 +235,11 @@ def _allow_upload(ip: str, limit: int = 5, window_seconds: int = 3600) -> bool:
     return count <= limit
 
 
-def _store_file(file_obj, file_key: str) -> None:
+def _store_file(file_obj, file_key: str, content_type: str = 'application/pdf') -> None:
     """Upload to R2 if configured, otherwise save to /tmp for local dev."""
     if settings.R2_ENDPOINT_URL and settings.R2_ACCESS_KEY:
         from apps.common.storage import upload_to_r2
-        upload_to_r2(file_key, file_obj, content_type='application/pdf')
+        upload_to_r2(file_key, file_obj, content_type=content_type)
     else:
         local_path = f'/tmp/{file_key}'
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
