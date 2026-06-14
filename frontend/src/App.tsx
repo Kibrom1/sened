@@ -7,6 +7,7 @@ import VendorsPage from '@/pages/Vendors'
 import VendorDetailPage from '@/pages/VendorDetail'
 import UploadPage from '@/pages/Upload'
 import ProfilesPage from '@/pages/RequirementProfiles'
+import RenewalsPage from '@/pages/Renewals'
 import BillingPage from '@/pages/Billing'
 import MagicUploadPage from '@/pages/MagicUpload'
 import LoadingSpinner from '@/components/LoadingSpinner'
@@ -69,6 +70,7 @@ export default function App() {
         <Route path="vendors/:vendorId" element={<VendorDetailPage />} />
         <Route path="vendors/:vendorId/upload" element={<UploadPage />} />
         <Route path="profiles" element={<ProfilesPage />} />
+        <Route path="renewals" element={<RenewalsPage />} />
         <Route path="billing" element={<BillingPage />} />
       </Route>
     </Routes>

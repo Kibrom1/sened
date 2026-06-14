@@ -1,17 +1,66 @@
 import csv
 import io
 from django.db import transaction
+from django.db.models import OuterRef, Subquery
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Vendor, RequirementProfile, RequirementLine
-from .serializers import VendorSerializer, RequirementProfileSerializer
+from .serializers import (
+    RequirementProfileSerializer,
+    VendorListSerializer,
+    VendorSerializer,
+)
 
 
 class VendorListView(APIView):
     def get(self, request):
-        vendors = Vendor.objects.for_org(request.org_id).filter(status='active').select_related('requirement_profile')
-        serializer = VendorSerializer(vendors, many=True)
+        from apps.compliance.models import ComplianceCheck
+        from apps.documents.models import ExtractedCoverage
+
+        org_id = request.org_id
+
+        # Latest compliance-engine verdict per vendor (correlated subquery — no N+1).
+        # Single source of truth shared with the Dashboard so the two views can
+        # never show contradicting statuses for the same vendor.
+        latest_status = (
+            ComplianceCheck.objects
+            .filter(vendor=OuterRef('pk'), organization_id=org_id)
+            .order_by('-checked_at')
+            .values('status')[:1]
+        )
+        latest_reasons = (
+            ComplianceCheck.objects
+            .filter(vendor=OuterRef('pk'), organization_id=org_id)
+            .order_by('-checked_at')
+            .values('reasons')[:1]
+        )
+        next_exp = (
+            ExtractedCoverage.objects
+            .filter(
+                document__vendor=OuterRef('pk'),
+                document__organization_id=org_id,
+                document__status='confirmed',
+                expiration_date__isnull=False,
+                expiration_date__gte=timezone.now().date(),
+            )
+            .order_by('expiration_date')
+            .values('expiration_date')[:1]
+        )
+
+        vendors = (
+            Vendor.objects
+            .for_org(org_id)
+            .filter(status='active')
+            .select_related('requirement_profile')
+            .annotate(
+                latest_status=Subquery(latest_status),
+                latest_reasons=Subquery(latest_reasons),
+                next_expiration_date=Subquery(next_exp),
+            )
+        )
+        serializer = VendorListSerializer(vendors, many=True)
         return Response(serializer.data)
 
     def post(self, request):

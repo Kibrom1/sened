@@ -1,8 +1,10 @@
 """
-Renewal views — Phase 3
+Renewal views — Phase 3 + Renewal Activity UI
 
-MagicUploadView  — public, token-authenticated upload endpoint (vendor-facing)
-ManualRenewalView — authenticated endpoint for staff to manually trigger a reminder
+MagicUploadView    — public, token-authenticated upload endpoint (vendor-facing)
+ManualRenewalView  — authenticated endpoint for staff to manually trigger a reminder
+RenewalListView    — authenticated org-scoped list of renewal requests
+ActivityListView   — authenticated org-scoped activity feed
 """
 
 import logging
@@ -16,7 +18,47 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import RenewalRequest
+from .models import ActivityLog, RenewalRequest
+from .serializers import ActivityLogSerializer, RenewalRequestSerializer
+
+
+class RenewalListView(APIView):
+    """GET /api/renewals/ — renewal requests for the caller's org, newest first."""
+
+    def get(self, request):
+        renewals = (
+            RenewalRequest.objects
+            .for_org(request.org_id)
+            .select_related('vendor')
+            .order_by('-created_at')
+        )
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            renewals = renewals.filter(status=status_filter)
+        return Response(RenewalRequestSerializer(renewals, many=True).data)
+
+
+class ActivityListView(APIView):
+    """GET /api/activity/ — recent activity feed for the caller's org."""
+
+    def get(self, request):
+        logs = (
+            ActivityLog.objects
+            .for_org(request.org_id)
+            .select_related('vendor')
+            .order_by('-created_at')
+        )
+        vendor_id = request.query_params.get('vendor')
+        if vendor_id:
+            logs = logs.filter(vendor_id=vendor_id)
+
+        # Cap the feed; full audit history is paginated in a later phase.
+        limit = 100
+        try:
+            limit = min(int(request.query_params.get('limit', limit)), 500)
+        except (TypeError, ValueError):
+            pass
+        return Response(ActivityLogSerializer(logs[:limit], many=True).data)
 
 logger = logging.getLogger(__name__)
 

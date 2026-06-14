@@ -4,9 +4,11 @@ import { Link } from 'react-router-dom'
 import { UserPlus, Upload, Users, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { vendorsApi, profilesApi } from '@/api/vendors'
-import { documentsApi } from '@/api/documents'
-import type { COIDocumentListItem } from '@/api/documents'
 import type { Vendor, RequirementProfile } from '@/api/types'
+import ComplianceStatusPill, {
+  COMPLIANCE_STATUS_META,
+  type VendorComplianceStatus,
+} from '@/components/ComplianceStatusPill'
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function Skeleton({ className }: { className?: string }) {
@@ -23,7 +25,7 @@ function VendorsTableSkeleton() {
               <th className="px-6 py-4">Vendor</th>
               <th className="px-6 py-4">Contact</th>
               <th className="px-6 py-4">Requirement Profile</th>
-              <th className="px-6 py-4">COI Status</th>
+              <th className="px-6 py-4">Compliance</th>
               <th className="px-6 py-4" />
             </tr>
           </thead>
@@ -46,50 +48,9 @@ function VendorsTableSkeleton() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function isExpired(date: string | null) {
-  if (!date) return false
-  return new Date(date) < new Date()
-}
-
-function isExpiringSoon(date: string | null, days = 30) {
-  if (!date) return false
-  const d = new Date(date)
-  const now = new Date()
-  return d >= now && d <= new Date(now.getTime() + days * 86_400_000)
-}
-
-type DocStatus = 'expired' | 'expiring_soon' | 'active' | 'unconfirmed' | 'processing' | 'missing'
-
-function latestDocStatus(docs: COIDocumentListItem[], vendorId: string): DocStatus {
-  const vendorDocs = docs
-    .filter((d) => d.vendor === vendorId)
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
-  if (vendorDocs.length === 0) return 'missing'
-  const doc = vendorDocs[0]
-  if (doc.status === 'processing' || doc.status === 'uploaded') return 'processing'
-  if (doc.status === 'extracted') return 'unconfirmed'
-  if (isExpired(doc.earliest_expiration)) return 'expired'
-  if (isExpiringSoon(doc.earliest_expiration)) return 'expiring_soon'
-  return 'active'
-}
-
-function VendorStatusPill({ status }: { status: DocStatus }) {
-  const map: Record<DocStatus, { label: string; cls: string; dot: string }> = {
-    expired:       { label: 'Expired',       cls: 'bg-rose-50 text-rose-700 border-rose-100/60', dot: 'bg-rose-500' },
-    expiring_soon: { label: 'Expiring soon', cls: 'bg-amber-50 text-amber-700 border-amber-100/60', dot: 'bg-amber-500' },
-    active:        { label: 'Active',        cls: 'bg-emerald-50 text-emerald-700 border-emerald-100/60', dot: 'bg-emerald-500' },
-    unconfirmed:   { label: 'Pending confirmation', cls: 'bg-indigo-50 text-indigo-700 border-indigo-100/60', dot: 'bg-indigo-500' },
-    processing:    { label: 'Processing',    cls: 'bg-slate-50 text-slate-500 border-slate-100/60', dot: 'bg-slate-400 animate-pulse' },
-    missing:       { label: 'No COI',        cls: 'bg-rose-50/50 text-rose-500 border-rose-200', dot: 'bg-rose-400' },
-  }
-  const { label, cls, dot } = map[status]
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full border ${cls}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      {label}
-    </span>
-  )
+/** Vendor's compliance verdict from the API (shared vocabulary with Dashboard). */
+function vendorStatus(v: Vendor): VendorComplianceStatus {
+  return v.compliance_status ?? 'no_data'
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────────
@@ -98,14 +59,6 @@ function useVendors() {
   return useQuery<Vendor[]>({
     queryKey: ['vendors'],
     queryFn: vendorsApi.list,
-  })
-}
-
-function useAllDocuments() {
-  return useQuery({
-    queryKey: ['documents'],
-    queryFn: () => documentsApi.list(),
-    staleTime: 30_000,
   })
 }
 
@@ -121,14 +74,10 @@ function useProfiles() {
 
 type SortKey = 'name' | 'contact' | 'profile' | 'status'
 
-const STATUS_SORT_ORDER: Record<DocStatus, number> = {
-  expired: 0, missing: 1, expiring_soon: 2, unconfirmed: 3, processing: 4, active: 5,
-}
-
-function exportVendorsCsv(rows: { vendor: Vendor; status: DocStatus }[]) {
-  const header = ['Vendor', 'Contact email', 'Requirement profile', 'COI status']
+function exportVendorsCsv(rows: { vendor: Vendor; status: VendorComplianceStatus }[]) {
+  const header = ['Vendor', 'Contact email', 'Requirement profile', 'Compliance status']
   const lines = rows.map(({ vendor: v, status }) => [
-    v.name, v.contact_email ?? '', v.requirement_profile_name ?? '', status,
+    v.name, v.contact_email ?? '', v.requirement_profile_name ?? '', COMPLIANCE_STATUS_META[status].label,
   ])
   const csv = [header, ...lines]
     .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -170,7 +119,6 @@ function SortableTh({
 
 export default function VendorsPage() {
   const { data: vendors, isLoading } = useVendors()
-  const { data: allDocs = [] } = useAllDocuments()
   const { data: profiles = [] } = useProfiles()
   const qc = useQueryClient()
   const [showAddForm, setShowAddForm] = useState(false)
@@ -188,13 +136,13 @@ export default function VendorsPage() {
           (v.contact_email ?? '').toLowerCase().includes(search.toLowerCase())
         : true,
     )
-    .map((v) => ({ vendor: v, status: latestDocStatus(allDocs, v.id) }))
+    .map((v) => ({ vendor: v, status: vendorStatus(v) }))
     .sort((a, b) => {
       const cmp =
         sort.key === 'name' ? a.vendor.name.localeCompare(b.vendor.name)
         : sort.key === 'contact' ? (a.vendor.contact_email ?? '').localeCompare(b.vendor.contact_email ?? '')
         : sort.key === 'profile' ? (a.vendor.requirement_profile_name ?? '').localeCompare(b.vendor.requirement_profile_name ?? '')
-        : STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]
+        : COMPLIANCE_STATUS_META[a.status].sort - COMPLIANCE_STATUS_META[b.status].sort
       return cmp * sort.dir
     })
 
@@ -329,7 +277,7 @@ export default function VendorsPage() {
                   <SortableTh label="Vendor" sortKey="name" sort={sort} onSort={handleSort} />
                   <SortableTh label="Contact" sortKey="contact" sort={sort} onSort={handleSort} />
                   <SortableTh label="Requirement profile" sortKey="profile" sort={sort} onSort={handleSort} />
-                  <SortableTh label="COI status" sortKey="status" sort={sort} onSort={handleSort} />
+                  <SortableTh label="Compliance" sortKey="status" sort={sort} onSort={handleSort} />
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
@@ -361,7 +309,7 @@ export default function VendorsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <VendorStatusPill status={status} />
+                        <ComplianceStatusPill status={status} />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link

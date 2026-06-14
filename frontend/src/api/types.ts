@@ -45,6 +45,10 @@ export interface Vendor {
   requirement_profile_name: string | null
   status: 'active' | 'inactive'
   created_at: string
+  /** Compliance-engine verdict (list endpoint only). Shared with the Dashboard. */
+  compliance_status?: 'matches_requirements' | 'gaps_found' | 'expired' | 'needs_review' | 'no_data'
+  compliance_reasons?: string[]
+  next_expiration?: string | null
 }
 
 export type CoverageType =
@@ -118,4 +122,30 @@ export interface VendorComplianceStatus {
   status: 'matches_requirements' | 'gaps_found' | 'expired' | 'needs_review' | 'no_data'
   reasons: string[]
   checked_at: string | null
+}
+
+export type RenewalStatus = 'scheduled' | 'sent' | 'responded' | 'expired_no_response'
+
+/** A renewal request — one reminder loop for a vendor's COI. */
+export interface RenewalRequest {
+  id: string
+  vendor_id: string
+  vendor_name: string
+  contact_email: string | null
+  status: RenewalStatus
+  sent_at: string | null
+  responded_at: string | null
+  magic_link_expires_at: string | null
+  created_at: string
+}
+
+/** An activity-log entry — the audit feed. */
+export interface ActivityLogEntry {
+  id: string
+  vendor: string | null
+  vendor_name: string | null
+  actor: string
+  action: string
+  detail: Record<string, unknown> | null
+  created_at: string
 }
