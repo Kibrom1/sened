@@ -152,3 +152,44 @@ class TenantAuthMiddleware:
             )
 
         return self.get_response(request)
+
+
+# Content-Security-Policy.
+# 'unsafe-inline' for styles + 'self' scripts are required for the Django admin
+# to render; everything else is locked down. The JSON API itself needs none of
+# this, but a single app-wide policy keeps the admin working while still giving
+# a restrictive default. frame-ancestors 'none' blocks clickjacking (defense in
+# depth alongside X-Frame-Options).
+CSP_POLICY = (
+    "default-src 'none'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "form-action 'self'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none'"
+)
+
+PERMISSIONS_POLICY = 'geolocation=(), microphone=(), camera=(), payment=()'
+
+
+class SecurityHeadersMiddleware:
+    """
+    Adds HTTP security headers that Django's SecurityMiddleware does not cover:
+    Content-Security-Policy and Permissions-Policy. Referrer-Policy and
+    X-Content-Type-Options are set here too as defense in depth (also enforced
+    by Django settings). Header values are only added if not already present.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response.setdefault('Content-Security-Policy', CSP_POLICY)
+        response.setdefault('Permissions-Policy', PERMISSIONS_POLICY)
+        response.setdefault('X-Content-Type-Options', 'nosniff')
+        response.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+        return response
