@@ -7,8 +7,9 @@
  * getting-started checklist.
  */
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   AlertCircle,
   AlertTriangle,
@@ -16,11 +17,14 @@ import {
   Download,
   Eye,
   FileText,
+  Loader2,
   RefreshCw,
+  Send,
   UserPlus,
 } from 'lucide-react'
 import { apiClient } from '@/api/client'
 import { documentsApi } from '@/api/documents'
+import { renewalsApi } from '@/api/renewals'
 import { vendorsApi, profilesApi } from '@/api/vendors'
 import type { ComplianceCheckWithVendor, DashboardBuckets } from '@/api/types'
 
@@ -259,6 +263,46 @@ function exportCsv(rows: (ComplianceCheckWithVendor & { bucket: BucketKey })[]) 
   URL.revokeObjectURL(url)
 }
 
+// ── Per-row quick actions ────────────────────────────────────────────────────
+
+function RowActions({ vendorId, vendorName }: { vendorId: string; vendorName: string }) {
+  const qc = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: () => renewalsApi.send(vendorId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['renewals'] })
+      qc.invalidateQueries({ queryKey: ['activity'] })
+      toast.success(`Renewal reminder queued for ${vendorName}`)
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Could not send the reminder.'
+      toast.error(msg)
+    },
+  })
+
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <button
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        title={`Send a renewal reminder to ${vendorName}`}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+      >
+        {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+        Remind
+      </button>
+      <Link
+        to={`/vendors/${vendorId}`}
+        className="text-xs font-medium text-brand-600 hover:text-brand-700"
+      >
+        View
+      </Link>
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -411,6 +455,7 @@ export default function DashboardPage() {
                 <th className="px-4 py-2.5 text-left">Issues</th>
                 <th className="px-4 py-2.5 text-left">Next expiration</th>
                 <th className="px-4 py-2.5 text-right">Last checked</th>
+                <th className="px-4 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -418,7 +463,7 @@ export default function DashboardPage() {
                 Array.from({ length: 5 }).map((_, i) => <TableRowSkeleton key={i} />)
               ) : allRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     <div className="py-16 flex flex-col items-center gap-3 text-center px-6">
                       <FileText className="w-8 h-8 text-slate-300" />
                       <div>
@@ -472,6 +517,9 @@ export default function DashboardPage() {
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-slate-400 whitespace-nowrap">
                       {fmtDate(row.checked_at)}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <RowActions vendorId={row.vendor_id} vendorName={row.vendor_name} />
                     </td>
                   </tr>
                 ))

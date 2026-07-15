@@ -128,7 +128,7 @@ def _call_anthropic(image_blocks: list[dict]) -> dict:
     content.append({'type': 'text', 'text': EXTRACTION_PROMPT})
 
     message = client.messages.create(
-        model='claude-opus-4-6',
+        model=settings.ANTHROPIC_MODEL,
         max_tokens=4096,
         messages=[{'role': 'user', 'content': content}],
     )

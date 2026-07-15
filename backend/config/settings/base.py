@@ -166,6 +166,9 @@ STRIPE_PRICE_ID = config('STRIPE_PRICE_ID', default='')
 
 # Anthropic
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+# Vision model for COI extraction. Override via env when models change so the
+# code doesn't pin a retired model ID. Current Opus tier as of 2026-06.
+ANTHROPIC_MODEL = config('ANTHROPIC_MODEL', default='claude-opus-4-8')
 
 # Frontend URL (for magic links)
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173')
